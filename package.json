@@ -1,0 +1,17 @@
+{
+  "name": "researchhub-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ResearchHub OS - Monorepo for Cloud-Native Research Management Platform",
+  "workspaces": [
+    "shared",
+    "frontend",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {}
+}

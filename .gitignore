@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.uploads/
+.env
+.env.local
+pgdata/
+.antigravityMem/
+.recall_scratchpad.md
+ResearchHub_OS_SPEC.md
+docs/
+db/
