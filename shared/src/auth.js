@@ -2,7 +2,10 @@ const jwt = require('jsonwebtoken');
 const { UnauthorizedError, ForbiddenError } = require('./errors');
 const { query } = require('./db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'researchhub-dev-secret-key-32-chars-minimum!!';
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: JWT_SECRET environment variable is required in production');
+}
+const JWT_SECRET = process.env.JWT_SECRET || 'researchhub-dev-secret-change-in-production';
 
 const roleHierarchy = {
   professor: 3,

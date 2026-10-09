@@ -1,7 +1,12 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedRoute, RoleRoute } from './components/auth/ProtectedRoute';
 import { AppShell } from './components/layout/AppShell';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { UsersPage } from './pages/UsersPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 import { PageHeader } from './components/ui';
 
@@ -17,26 +22,111 @@ function PlaceholderPage({ title, description }) {
 }
 
 export default function App() {
-  const user = {
-    name: 'Prof. Eleanor Vance',
-    role: 'professor',
-  };
-
   return (
     <BrowserRouter>
-      <AppShell user={user}>
+      <AuthProvider>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/design" element={<DesignSystemPage />} />
-          <Route path="/projects" element={<PlaceholderPage title="Projects" description="Manage research projects, members, and milestones." />} />
-          <Route path="/equipment" element={<PlaceholderPage title="Equipment Reservation" description="Book lab instruments and manage hardware schedules." />} />
-          <Route path="/lab" element={<PlaceholderPage title="Testing Environment (Lab)" description="Select container profile and launch interactive Jupyter lab sessions." />} />
-          <Route path="/notifications" element={<PlaceholderPage title="Notifications" description="View system alerts and project activity updates." />} />
-          <Route path="/users" element={<PlaceholderPage title="User Management" description="Manage user roles and permissions (Professor only)." />} />
-          <Route path="/audit" element={<PlaceholderPage title="Audit Log" description="Review system security and activity audit records (Professor only)." />} />
-          <Route path="*" element={<DashboardPage />} />
+          {/* Public Auth Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          {/* Protected Routes inside AppShell */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <DashboardPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/design"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <DesignSystemPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PlaceholderPage title="Projects" description="Manage research projects, members, and milestones." />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/equipment"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PlaceholderPage title="Equipment Reservation" description="Book lab instruments and manage hardware schedules." />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/lab"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PlaceholderPage title="Testing Environment (Lab)" description="Select container profile and launch interactive Jupyter lab sessions." />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PlaceholderPage title="Notifications" description="View system alerts and project activity updates." />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Professor-Only Protected Routes */}
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute>
+                <RoleRoute requiredRole="professor">
+                  <AppShell>
+                    <UsersPage />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/audit"
+            element={
+              <ProtectedRoute>
+                <RoleRoute requiredRole="professor">
+                  <AppShell>
+                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records (Professor only)." />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </AppShell>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

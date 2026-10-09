@@ -13,11 +13,16 @@ import {
   ChevronRight,
   Sparkles,
   Palette,
+  LogOut,
 } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
+import { useAuth } from '../../context/AuthContext';
 
-export const Sidebar = ({ isCollapsed, onToggleCollapse, user = { name: 'Prof. Eleanor Vance', role: 'professor' } }) => {
+export const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   const location = useLocation();
+  const { user, logout } = useAuth();
+
+  const currentUser = user || { name: 'Guest User', role: 'student' };
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -25,7 +30,7 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse, user = { name: 'Prof. E
     { label: 'Equipment', path: '/equipment', icon: CalendarClock },
     { label: 'Testing Environment', path: '/lab', icon: Terminal },
     { label: 'Notifications', path: '/notifications', icon: Bell },
-    ...(user.role === 'professor' ? [
+    ...(currentUser.role === 'professor' ? [
       { label: 'Users', path: '/users', icon: Users },
       { label: 'Audit Log', path: '/audit', icon: ShieldAlert },
     ] : []),
@@ -39,7 +44,7 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse, user = { name: 'Prof. E
         isCollapsed ? 'w-16' : 'w-58'
       )}
     >
-      {/* Top Header & Logo */}
+      {/* Top Header & Wordmark */}
       <div>
         <div className="h-14 border-b border-border flex items-center justify-between px-4">
           {!isCollapsed ? (
@@ -66,7 +71,7 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse, user = { name: 'Prof. E
           </button>
         </div>
 
-        {/* Nav Items */}
+        {/* Navigation items */}
         <nav className="p-2 space-y-1 mt-2">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -101,15 +106,31 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse, user = { name: 'Prof. E
         </nav>
       </div>
 
-      {/* User Menu at Bottom */}
+      {/* User Menu at Bottom with Logout */}
       <div className="p-3 border-t border-border bg-surface-2/40">
-        <div className={clsx('flex items-center gap-3', isCollapsed && 'justify-center')}>
-          <Avatar name={user.name} size="sm" />
+        <div className={clsx('flex items-center gap-2.5', isCollapsed ? 'justify-center' : 'justify-between')}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Avatar name={currentUser.full_name || currentUser.name || currentUser.email} size="sm" />
+            {!isCollapsed && (
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-txt truncate">
+                  {currentUser.full_name || currentUser.name || 'User'}
+                </span>
+                <span className="text-[10px] text-txt-muted capitalize truncate font-mono">
+                  {currentUser.role}
+                </span>
+              </div>
+            )}
+          </div>
+
           {!isCollapsed && (
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-txt truncate">{user.name}</span>
-              <span className="text-[10px] text-txt-muted capitalize truncate">{user.role}</span>
-            </div>
+            <button
+              onClick={logout}
+              className="p-1.5 rounded-input hover:bg-danger/10 hover:text-danger text-txt-muted transition-colors shrink-0"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           )}
         </div>
       </div>

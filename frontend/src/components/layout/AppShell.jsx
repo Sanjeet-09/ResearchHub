@@ -5,7 +5,7 @@ import { Topbar } from './Topbar';
 import { CommandPalette } from '../ui/CommandPalette';
 import { Toaster } from '../ui/Toaster';
 
-export const AppShell = ({ children, user }) => {
+export const AppShell = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -14,7 +14,6 @@ export const AppShell = ({ children, user }) => {
       <Sidebar
         isCollapsed={isCollapsed}
         onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
-        user={user}
       />
 
       <div
@@ -25,7 +24,6 @@ export const AppShell = ({ children, user }) => {
       >
         <Topbar
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-          user={user}
         />
 
         <main className="flex-1 p-8 max-w-[1200px] w-full mx-auto">

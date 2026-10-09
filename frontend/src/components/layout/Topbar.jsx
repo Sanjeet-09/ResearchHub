@@ -1,10 +1,14 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Search, Bell, ChevronRight } from 'lucide-react';
+import { Search, Bell, ChevronRight, LogOut } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
+import { useAuth } from '../../context/AuthContext';
 
-export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 2, user = { name: 'Prof. Eleanor Vance', role: 'professor' } }) => {
+export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 0 }) => {
   const location = useLocation();
+  const { user, logout } = useAuth();
+
+  const currentUser = user || { name: 'Guest User', role: 'student' };
 
   const pathParts = location.pathname.split('/').filter(Boolean);
   const breadcrumbs = [
@@ -47,12 +51,12 @@ export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 2, user = {
           <span>Search or jump to...</span>
         </div>
         <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-surface-3 border border-border rounded text-txt-faint">
-          ⌘K
+          Ctrl+K
         </kbd>
       </button>
 
-      {/* Right: Notifications & Avatar */}
-      <div className="flex items-center gap-4">
+      {/* Right: Notifications & Avatar / Logout */}
+      <div className="flex items-center gap-3">
         <button
           className="relative p-2 rounded-input hover:bg-surface-2 text-txt-muted hover:text-txt transition-colors"
           title="Notifications"
@@ -65,7 +69,19 @@ export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 2, user = {
 
         <div className="h-4 w-[1px] bg-border" />
 
-        <Avatar name={user.name} size="sm" />
+        <div className="flex items-center gap-2">
+          <Avatar name={currentUser.full_name || currentUser.name || currentUser.email} size="sm" />
+          <span className="text-xs font-semibold text-txt hidden sm:inline">
+            {currentUser.full_name || currentUser.name || 'User'}
+          </span>
+          <button
+            onClick={logout}
+            className="p-1.5 rounded-input hover:bg-danger/10 hover:text-danger text-txt-muted transition-colors sm:hidden"
+            title="Sign Out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </header>
   );
