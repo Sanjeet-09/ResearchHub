@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { projectApi, authApi } from '../services/api';
 import { PageHeader, Tabs, Card, CardHeader, CardTitle, CardContent, Badge, Button, Input, Select, Checkbox, Skeleton, Dialog, ConfirmDialog } from '../components/ui';
 import { CheckCircle2, Circle, Clock, Plus, Trash2, UserPlus, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
+import { ExperimentsTab } from '../components/experiments/ExperimentsTab';
 
 export const ProjectDetailPage = () => {
   const { id } = useParams();
@@ -359,10 +360,15 @@ export const ProjectDetailPage = () => {
         </div>
       )}
 
-      {/* Tab Placeholders */}
-      {activeTab !== 'overview' && (
+      {/* Experiments Tab */}
+      {activeTab === 'experiments' && (
+        <ExperimentsTab projectId={id} isMember={isMember} isLead={isLead} />
+      )}
+
+      {/* Other Tab Placeholders */}
+      {!['overview', 'experiments'].includes(activeTab) && (
         <Card className="p-12 text-center text-txt-muted text-xs">
-          The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in Phase 3+.
+          The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in subsequent phases.
         </Card>
       )}
 

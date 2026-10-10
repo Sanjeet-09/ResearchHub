@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const { errorHandler, logger } = require('@rh/shared');
+const { errorHandler, logger, getStorageAdapter } = require('@rh/shared');
 
 const requestIdMiddleware = require('./middleware/requestId');
 const gatewayAuthMiddleware = require('./middleware/auth');
@@ -56,10 +56,44 @@ app.use('/api', gatewayAuthMiddleware);
 // 7. Audit Logging for mutating actions
 app.use('/api', auditHookMiddleware);
 
-// 8. Service Proxies
+// 8. Local Storage Proxy endpoints for dev file uploads/downloads
+const fs = require('fs');
+app.post('/api/storage/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res, next) => {
+  try {
+    const { bucket, key } = req.query;
+    if (!bucket || !key) return res.status(400).json({ error: { message: 'bucket and key required' } });
+    const storage = getStorageAdapter();
+    const gcsPath = await storage.uploadFile(bucket, key, req.body, req.headers['content-type']);
+    res.json({ status: 'uploaded', gcsPath });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/storage/download', async (req, res, next) => {
+  try {
+    const { bucket, key } = req.query;
+    if (!bucket || !key) return res.status(400).json({ error: { message: 'bucket and key required' } });
+    const storage = getStorageAdapter();
+    const filePath = storage._getFilePath(bucket, key);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: { message: 'File not found on local storage' } });
+    }
+    res.sendFile(filePath);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 9. Service Proxies
 // Auth Service Proxy (/api/auth/* -> dynamic SERVICE_URL_AUTH/auth/*)
 const authProxy = createServiceProxy(() => process.env.SERVICE_URL_AUTH || 'http://localhost:5001', '/api');
 app.use('/api/auth', authProxy);
+
+// Experiment Service Proxy (/api/projects/:pid/experiments & /api/experiments -> experiment-service)
+const experimentProxy = createServiceProxy(() => process.env.SERVICE_URL_EXPERIMENT || 'http://localhost:5003', '/api');
+app.use('/api/experiments', experimentProxy);
+app.use('/api/projects/:pid/experiments', experimentProxy);
 
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
 const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');

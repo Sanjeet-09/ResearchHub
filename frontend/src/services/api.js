@@ -135,3 +135,72 @@ export const projectApi = {
   },
 };
 
+// Experiment API endpoints
+export const experimentApi = {
+  getExperiments: async (projectId) => {
+    const res = await api.get(`/projects/${projectId}/experiments`);
+    return res.data.experiments;
+  },
+
+  getExperimentById: async (projectId, experimentId) => {
+    const res = await api.get(`/projects/${projectId}/experiments/${experimentId}`);
+    return res.data;
+  },
+
+  createExperiment: async (projectId, experimentData) => {
+    const res = await api.post(`/projects/${projectId}/experiments`, experimentData);
+    return res.data.experiment;
+  },
+
+  updateExperiment: async (projectId, experimentId, experimentData) => {
+    const res = await api.patch(`/projects/${projectId}/experiments/${experimentId}`, experimentData);
+    return res.data.experiment;
+  },
+
+  deleteExperiment: async (projectId, experimentId) => {
+    const res = await api.delete(`/projects/${projectId}/experiments/${experimentId}`);
+    return res.data;
+  },
+
+  getUploadUrl: async (projectId, experimentId, fileData) => {
+    const res = await api.post(`/projects/${projectId}/experiments/${experimentId}/files/upload-url`, fileData);
+    return res.data;
+  },
+
+  uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const res = await axios.post(uploadUrl, file, {
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data;
+  },
+
+  confirmFileUpload: async (projectId, experimentId, confirmData) => {
+    const res = await api.post(`/projects/${projectId}/experiments/${experimentId}/files/confirm`, confirmData);
+    return res.data.file;
+  },
+
+  getDownloadUrl: async (projectId, experimentId, fileId) => {
+    const res = await api.get(`/projects/${projectId}/experiments/${experimentId}/files/${fileId}/download`);
+    return res.data;
+  },
+
+  deleteFile: async (projectId, experimentId, fileId) => {
+    const res = await api.delete(`/projects/${projectId}/experiments/${experimentId}/files/${fileId}`);
+    return res.data;
+  },
+
+  getExperimentLinks: async (experimentId) => {
+    const res = await api.get(`/experiments/${experimentId}/links`);
+    return res.data.links;
+  },
+};
+
+
