@@ -12,13 +12,25 @@ async function initDb() {
     const runSqlFile = async (relPath, label) => {
       console.log(`Applying ${label}...`);
       const fullPath = path.join(__dirname, '..', relPath);
+      if (!fs.existsSync(fullPath)) {
+        console.log(`[SKIP] ${label} file not found`);
+        return;
+      }
       const sql = fs.readFileSync(fullPath, 'utf8');
-      await client.query(sql);
-      console.log(`[OK] ${label} applied successfully`);
+      try {
+        await client.query(sql);
+        console.log(`[OK] ${label} applied successfully`);
+      } catch (err) {
+        if (err.code === '42710' || err.code === '42P07') {
+          // duplicate_object (e.g. enum/type already exists) or duplicate_table
+          console.log(`[NOTICE] ${label} already applied (${err.message})`);
+        } else {
+          throw err;
+        }
+      }
     };
 
     await runSqlFile('db/migrations/001_init.sql', '001_init.sql (Core Schema)');
-    await runSqlFile('db/migrations/002_lab.sql', '002_lab.sql (Lab Schema)');
     await runSqlFile('db/seed.sql', 'seed.sql (Demo Users & Seed Data)');
 
     console.log('\n======================================================');

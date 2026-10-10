@@ -6,6 +6,7 @@ const generalLimiter = rateLimit({
   max: 300, // Limit each IP to 300 requests per window
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
   message: {
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
@@ -20,6 +21,7 @@ const authLimiter = rateLimit({
   max: 30, // Limit auth attempts to 30 requests per window
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
   message: {
     error: {
       code: 'AUTH_RATE_LIMIT_EXCEEDED',

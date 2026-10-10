@@ -61,6 +61,10 @@ app.use('/api', auditHookMiddleware);
 const authProxy = createServiceProxy(() => process.env.SERVICE_URL_AUTH || 'http://localhost:5001', '/api');
 app.use('/api/auth', authProxy);
 
+// Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
+const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
+app.use('/api/projects', projectProxy);
+
 // 9. Unmatched API route handler
 app.use('/api', (req, res) => {
   res.status(404).json({

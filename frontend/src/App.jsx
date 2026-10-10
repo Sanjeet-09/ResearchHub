@@ -7,7 +7,10 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { UsersPage } from './pages/UsersPage';
+import { ProjectsListPage } from './pages/ProjectsListPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
+
 import { PageHeader } from './components/ui';
 
 function PlaceholderPage({ title, description }) {
@@ -58,11 +61,23 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <PlaceholderPage title="Projects" description="Manage research projects, members, and milestones." />
+                  <ProjectsListPage />
                 </AppShell>
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/projects/:id"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ProjectDetailPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
 
           <Route
             path="/equipment"

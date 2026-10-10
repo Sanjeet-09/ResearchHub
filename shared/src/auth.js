@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { UnauthorizedError, ForbiddenError } = require('./errors');
+const { UnauthorizedError, ForbiddenError, ValidationError } = require('./errors');
 const { query } = require('./db');
 
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
@@ -73,6 +73,9 @@ const requireRole = (...allowedRoles) => {
   };
 };
 
+const { z } = require('zod');
+const uuidSchema = z.string().uuid();
+
 const requireProjectRole = (minProjectRole) => {
   return async (req, res, next) => {
     if (!req.user) {
@@ -84,6 +87,17 @@ const requireProjectRole = (minProjectRole) => {
       return next(new ForbiddenError('Project ID is required for access verification'));
     }
 
+    // Validate UUID format early to prevent PostgreSQL 22P02 syntax errors
+    const projectIdParse = uuidSchema.safeParse(projectId);
+    if (!projectIdParse.success) {
+      return next(new ValidationError('Invalid project ID format (UUID expected)'));
+    }
+
+    const userIdParse = uuidSchema.safeParse(req.user.id);
+    if (!userIdParse.success) {
+      return next(new ValidationError('Invalid user ID format (UUID expected)'));
+    }
+
     // Professors bypass project role restrictions as system admins
     if (req.user.role === 'professor') {
       req.projectRole = 'lead';
@@ -91,16 +105,16 @@ const requireProjectRole = (minProjectRole) => {
     }
 
     try {
-      const res = await query(
+      const dbRes = await query(
         'SELECT project_role FROM project_members WHERE project_id = $1 AND user_id = $2',
         [projectId, req.user.id]
       );
 
-      if (res.rows.length === 0) {
+      if (dbRes.rows.length === 0) {
         return next(new ForbiddenError('You are not a member of this project'));
       }
 
-      const memberRole = res.rows[0].project_role;
+      const memberRole = dbRes.rows[0].project_role;
       req.projectRole = memberRole;
 
       const userProjectLevel = projectRoleHierarchy[memberRole] || 0;
