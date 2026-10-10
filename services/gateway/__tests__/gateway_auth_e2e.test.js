@@ -134,32 +134,32 @@ describe('Phase 1 End-to-End Verification (Gateway + Auth Service)', () => {
     });
   });
 
-  describe('RBAC Verification: student vs professor access', () => {
+  describe('RBAC Verification: student/professor vs admin access', () => {
     it('4. unauthenticated call to protected route returns 401', async () => {
       const res = await request(gatewayApp).get('/api/auth/me');
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
-    it('5. student cannot reach Professor-only role update (returns 403 Forbidden)', async () => {
-      const studentToken = jwt.sign(
-        { sub: 'student-uuid-001', role: 'student', name: 'Alex Rivera' },
+    it('5. non-admin (student/professor) cannot reach admin-only role update (returns 403 Forbidden)', async () => {
+      const professorToken = jwt.sign(
+        { sub: 'prof-uuid-001', role: 'professor', name: 'Prof. Vance' },
         JWT_SECRET,
         { expiresIn: '8h' }
       );
 
       const res = await request(gatewayApp)
         .patch('/api/auth/users/target-user-id/role')
-        .set('Authorization', `Bearer ${studentToken}`)
-        .send({ role: 'professor' });
+        .set('Authorization', `Bearer ${professorToken}`)
+        .send({ role: 'researcher' });
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN');
     });
 
-    it('6. professor can reach and update user roles successfully', async () => {
-      const professorToken = jwt.sign(
-        { sub: 'prof-uuid-001', role: 'professor', name: 'Prof. Eleanor Vance' },
+    it('6. admin can reach and update user roles successfully', async () => {
+      const adminToken = jwt.sign(
+        { sub: 'admin-uuid-001', role: 'admin', name: 'Admin System' },
         JWT_SECRET,
         { expiresIn: '8h' }
       );
@@ -173,11 +173,12 @@ describe('Phase 1 End-to-End Verification (Gateway + Auth Service)', () => {
         last_seen_at: new Date().toISOString(),
       };
 
+      query.mockResolvedValueOnce({ rows: [{ id: 'target-user-id', role: 'student' }] });
       query.mockResolvedValueOnce({ rows: [updatedTargetUser] });
 
       const res = await request(gatewayApp)
         .patch('/api/auth/users/target-user-id/role')
-        .set('Authorization', `Bearer ${professorToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'researcher' });
 
       expect(res.status).toBe(200);

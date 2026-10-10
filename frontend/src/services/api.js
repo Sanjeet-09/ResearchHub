@@ -70,6 +70,11 @@ export const authApi = {
     const res = await api.patch(`/auth/users/${userId}/role`, { role });
     return res.data.user;
   },
+
+  updateUserStatus: async (userId, isActive) => {
+    const res = await api.patch(`/auth/users/${userId}/status`, { isActive });
+    return res.data.user;
+  },
 };
 
 // Project API endpoints

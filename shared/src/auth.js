@@ -8,6 +8,7 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
 const JWT_SECRET = process.env.JWT_SECRET || 'researchhub-dev-secret-change-in-production';
 
 const roleHierarchy = {
+  admin: 4,
   professor: 3,
   researcher: 2,
   student: 1,
@@ -98,8 +99,8 @@ const requireProjectRole = (minProjectRole) => {
       return next(new ValidationError('Invalid user ID format (UUID expected)'));
     }
 
-    // Professors bypass project role restrictions as system admins
-    if (req.user.role === 'professor') {
+    // Admins and Professors bypass project role restrictions as system admins
+    if (req.user.role === 'admin' || req.user.role === 'professor') {
       req.projectRole = 'lead';
       return next();
     }

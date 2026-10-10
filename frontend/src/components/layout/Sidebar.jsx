@@ -30,8 +30,10 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
     { label: 'Equipment', path: '/equipment', icon: CalendarClock },
     { label: 'Testing Environment', path: '/lab', icon: Terminal },
     { label: 'Notifications', path: '/notifications', icon: Bell },
-    ...(currentUser.role === 'professor' ? [
+    ...(currentUser.role === 'admin' ? [
       { label: 'Users', path: '/users', icon: Users },
+    ] : []),
+    ...(currentUser.role === 'admin' || currentUser.role === 'professor' ? [
       { label: 'Audit Log', path: '/audit', icon: ShieldAlert },
     ] : []),
     { label: 'Design System', path: '/design', icon: Palette, isDev: true },

@@ -47,12 +47,12 @@ const updateMilestoneSchema = createMilestoneSchema.partial();
 const getProjects = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const isProfessor = req.user.role === 'professor';
+    const isGlobalAdmin = req.user.role === 'admin' || req.user.role === 'professor';
 
     let sql;
     let params = [];
 
-    if (isProfessor) {
+    if (isGlobalAdmin) {
       sql = `
         SELECT p.*, u.full_name as owner_name, u.email as owner_email,
                (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id)::int as member_count
@@ -98,10 +98,10 @@ const getProjectById = async (req, res, next) => {
       return next(new ValidationError('Invalid user ID format (UUID expected)'));
     }
 
-    const isProfessor = req.user.role === 'professor';
+    const isGlobalAdmin = req.user.role === 'admin' || req.user.role === 'professor';
 
-    // Verify membership unless professor
-    if (!isProfessor) {
+    // Verify membership unless admin or professor
+    if (!isGlobalAdmin) {
       const memberCheck = await query(
         'SELECT project_role FROM project_members WHERE project_id = $1 AND user_id = $2',
         [id, userId]

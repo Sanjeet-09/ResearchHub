@@ -9,6 +9,7 @@ const {
   getMe,
   getUsers,
   updateUserRole,
+  updateUserRoleStatus,
 } = require('../controllers/authController');
 
 const router = express.Router();
@@ -19,7 +20,8 @@ router.post('/login', login);
 
 // Protected routes
 router.get('/me', authenticateToken, getMe);
-router.get('/users', authenticateToken, getUsers);
-router.patch('/users/:id/role', authenticateToken, requireRole('professor'), updateUserRole);
+router.get('/users', authenticateToken, requireRole('admin'), getUsers);
+router.patch('/users/:id/role', authenticateToken, requireRole('admin'), updateUserRole);
+router.patch('/users/:id/status', authenticateToken, requireRole('admin'), updateUserRoleStatus);
 
 module.exports = router;

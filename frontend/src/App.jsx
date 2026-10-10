@@ -112,12 +112,12 @@ export default function App() {
             }
           />
 
-          {/* Professor-Only Protected Routes */}
+          {/* System Admin & Professor Protected Routes */}
           <Route
             path="/users"
             element={
               <ProtectedRoute>
-                <RoleRoute requiredRole="professor">
+                <RoleRoute requiredRole="admin">
                   <AppShell>
                     <UsersPage />
                   </AppShell>
@@ -132,7 +132,7 @@ export default function App() {
               <ProtectedRoute>
                 <RoleRoute requiredRole="professor">
                   <AppShell>
-                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records (Professor only)." />
+                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records." />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

@@ -213,9 +213,23 @@ describe('Auth Service', () => {
       expect(res.status).toBe(403);
     });
 
-    it('should allow professor to change role', async () => {
+    it('should forbid student and professor from changing roles', async () => {
       const professorToken = jwt.sign(
         { sub: 'prof-id', role: 'professor', name: 'Professor' },
+        JWT_SECRET
+      );
+
+      const res = await request(app)
+        .patch('/auth/users/target-id/role')
+        .set('Authorization', `Bearer ${professorToken}`)
+        .send({ role: 'researcher' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should allow admin to change role', async () => {
+      const adminToken = jwt.sign(
+        { sub: 'admin-id', role: 'admin', name: 'Admin' },
         JWT_SECRET
       );
 
@@ -227,11 +241,12 @@ describe('Auth Service', () => {
         created_at: new Date().toISOString(),
         last_seen_at: new Date().toISOString(),
       };
+      query.mockResolvedValueOnce({ rows: [{ id: 'target-id', role: 'student' }] }); // check target user role
       query.mockResolvedValueOnce({ rows: [updatedUser] });
 
       const res = await request(app)
         .patch('/auth/users/target-id/role')
-        .set('Authorization', `Bearer ${professorToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'researcher' });
 
       expect(res.status).toBe(200);
