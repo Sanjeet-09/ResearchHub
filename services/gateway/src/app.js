@@ -95,6 +95,10 @@ const experimentProxy = createServiceProxy(() => process.env.SERVICE_URL_EXPERIM
 app.use('/api/experiments', experimentProxy);
 app.use('/api/projects/:pid/experiments', experimentProxy);
 
+// Dataset Service Proxy (/api/projects/:pid/datasets -> dataset-service)
+const datasetProxy = createServiceProxy(() => process.env.SERVICE_URL_DATASET || 'http://localhost:5004', '/api');
+app.use('/api/projects/:pid/datasets', datasetProxy);
+
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
 const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
 app.use('/api/projects', projectProxy);
