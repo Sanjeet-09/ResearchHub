@@ -26,7 +26,7 @@ export const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-export const RoleRoute = ({ children, requiredRole = 'professor' }) => {
+export const RoleRoute = ({ children, allowedRoles, requiredRole = 'professor' }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -34,15 +34,27 @@ export const RoleRoute = ({ children, requiredRole = 'professor' }) => {
   }
 
   const roleHierarchy = {
+    admin: 4,
     professor: 3,
     researcher: 2,
     student: 1,
   };
 
-  const userLevel = roleHierarchy[user?.role] || 0;
-  const requiredLevel = roleHierarchy[requiredRole] || 99;
+  const rawRoles = allowedRoles !== undefined ? allowedRoles : requiredRole;
+  const roles = Array.isArray(rawRoles)
+    ? rawRoles.map(r => String(r).toLowerCase())
+    : [rawRoles ? String(rawRoles).toLowerCase() : null].filter(Boolean);
 
-  if (userLevel < requiredLevel) {
+  const userRole = user?.role?.toLowerCase();
+  const userLevel = roleHierarchy[userRole] || 0;
+
+  const hasAccess = roles.length === 0 ||
+    roles.includes(userRole) ||
+    userRole === 'admin' ||
+    roles.some(r => userLevel >= (roleHierarchy[r] || 99));
+
+  if (!hasAccess) {
+    const displayRole = roles.join(' or ') || 'authorized';
     return (
       <div className="flex flex-col items-center justify-center py-20 px-4 text-center max-w-md mx-auto">
         <div className="w-12 h-12 rounded-full bg-danger/10 border border-danger/20 flex items-center justify-center text-danger mb-4">
@@ -50,7 +62,7 @@ export const RoleRoute = ({ children, requiredRole = 'professor' }) => {
         </div>
         <h2 className="text-lg font-bold text-txt mb-1">Access Restricted</h2>
         <p className="text-xs text-txt-muted mb-6 leading-relaxed">
-          This area requires <span className="font-mono text-txt capitalize font-semibold">{requiredRole}</span> privileges.
+          This area requires <span className="font-mono text-txt capitalize font-semibold">{displayRole}</span> privileges.
           Your current account role is <span className="font-mono text-warning capitalize font-semibold">{user?.role || 'Guest'}</span>.
         </p>
         <Link to="/">

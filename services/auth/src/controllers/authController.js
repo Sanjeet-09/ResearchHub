@@ -30,8 +30,14 @@ const loginSchema = z.object({
 });
 
 const roleSchema = z.object({
-  role: z.enum(['professor', 'researcher', 'student'], {
-    errorMap: () => ({ message: "Role must be 'professor', 'researcher', or 'student'" }),
+  role: z.enum(['admin', 'professor', 'researcher', 'student'], {
+    errorMap: () => ({ message: "Role must be 'admin', 'professor', 'researcher', or 'student'" }),
+  }),
+});
+
+const statusSchema = z.object({
+  isActive: z.boolean({
+    required_error: 'isActive status is required',
   }),
 });
 
@@ -58,11 +64,11 @@ const register = async (req, res, next) => {
     // Hash password with bcrypt cost 12
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Default role is 'student' per specification
+    // Default role is strictly 'student' per specification
     const insertResult = await query(
-      `INSERT INTO users (email, password_hash, full_name, role)
-       VALUES ($1, $2, $3, 'student')
-       RETURNING id, email, full_name, role, created_at, last_seen_at`,
+      `INSERT INTO users (email, password_hash, full_name, role, is_active)
+       VALUES ($1, $2, $3, 'student', true)
+       RETURNING id, email, full_name, role, is_active, created_at, last_seen_at`,
       [email, passwordHash, fullName]
     );
 
@@ -100,7 +106,7 @@ const login = async (req, res, next) => {
     const { email, password } = parseResult.data;
 
     const result = await query(
-      `SELECT id, email, password_hash, full_name, role, created_at, last_seen_at
+      `SELECT id, email, password_hash, full_name, role, is_active, created_at, last_seen_at
        FROM users WHERE email = $1`,
       [email]
     );
@@ -110,6 +116,11 @@ const login = async (req, res, next) => {
     }
 
     const user = result.rows[0];
+
+    if (user.is_active === false) {
+      return next(new UnauthorizedError('Your account has been deactivated. Please contact a System Administrator.', 'ACCOUNT_DEACTIVATED'));
+    }
+
     const passwordValid = await bcrypt.compare(password, user.password_hash);
     if (!passwordValid) {
       return next(new UnauthorizedError('Incorrect password. Please verify your credentials and try again.', 'INVALID_PASSWORD'));
@@ -144,7 +155,7 @@ const getMe = async (req, res, next) => {
     const userId = req.user.id;
 
     const result = await query(
-      `SELECT id, email, full_name, role, created_at, last_seen_at
+      `SELECT id, email, full_name, role, is_active, created_at, last_seen_at
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -165,12 +176,12 @@ const getMe = async (req, res, next) => {
 };
 
 /**
- * Search and list users
+ * Search and list users (Admin only)
  */
 const getUsers = async (req, res, next) => {
   try {
     const { q, role } = req.query;
-    let sql = 'SELECT id, email, full_name, role, created_at, last_seen_at FROM users WHERE 1=1';
+    let sql = 'SELECT id, email, full_name, role, is_active, created_at, last_seen_at FROM users WHERE 1=1';
     const params = [];
 
     if (q) {
@@ -195,11 +206,16 @@ const getUsers = async (req, res, next) => {
 };
 
 /**
- * Update user role (Professor only)
+ * Update user role (System Admin only)
  */
 const updateUserRole = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Safeguard: Cannot alter own role
+    if (req.user.id === id) {
+      return next(new ValidationError('System Administrators cannot modify their own role'));
+    }
 
     const parseResult = roleSchema.safeParse(req.body);
     if (!parseResult.success) {
@@ -209,19 +225,85 @@ const updateUserRole = async (req, res, next) => {
 
     const { role } = parseResult.data;
 
+    // Check target user existing role
+    const targetCheck = await query('SELECT role, is_active FROM users WHERE id = $1', [id]);
+    if (targetCheck.rows.length === 0) {
+      return next(new NotFoundError('Target user not found'));
+    }
+
+    const targetUser = targetCheck.rows[0];
+
+    // Safeguard: Prevent demoting the last remaining active admin
+    if (targetUser.role === 'admin' && role !== 'admin') {
+      const adminCountRes = await query("SELECT COUNT(*)::int as count FROM users WHERE role = 'admin' AND is_active = true");
+      if (adminCountRes.rows[0].count <= 1) {
+        return next(new ValidationError('Cannot demote the last active System Administrator account'));
+      }
+    }
+
     const result = await query(
       `UPDATE users
        SET role = $1
        WHERE id = $2
-       RETURNING id, email, full_name, role, created_at, last_seen_at`,
+       RETURNING id, email, full_name, role, is_active, created_at, last_seen_at`,
       [role, id]
     );
 
-    if (result.rows.length === 0) {
+    logger.info({ targetUserId: id, newRole: role, updatedBy: req.user.id }, 'User role updated by Admin');
+
+    res.json({
+      user: result.rows[0],
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Toggle user activation status (System Admin only)
+ */
+const updateUserRoleStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Safeguard: Cannot deactivate self
+    if (req.user.id === id) {
+      return next(new ValidationError('System Administrators cannot deactivate their own account'));
+    }
+
+    const parseResult = statusSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.errors[0]?.message || 'Invalid status input';
+      return next(new ValidationError(firstError, parseResult.error.errors));
+    }
+
+    const { isActive } = parseResult.data;
+
+    // Check target user
+    const targetCheck = await query('SELECT role, is_active FROM users WHERE id = $1', [id]);
+    if (targetCheck.rows.length === 0) {
       return next(new NotFoundError('Target user not found'));
     }
 
-    logger.info({ targetUserId: id, newRole: role, updatedBy: req.user.id }, 'User role updated');
+    const targetUser = targetCheck.rows[0];
+
+    // Safeguard: Prevent deactivating the last active admin
+    if (targetUser.role === 'admin' && !isActive) {
+      const adminCountRes = await query("SELECT COUNT(*)::int as count FROM users WHERE role = 'admin' AND is_active = true");
+      if (adminCountRes.rows[0].count <= 1) {
+        return next(new ValidationError('Cannot deactivate the last active System Administrator account'));
+      }
+    }
+
+    const result = await query(
+      `UPDATE users
+       SET is_active = $1
+       WHERE id = $2
+       RETURNING id, email, full_name, role, is_active, created_at, last_seen_at`,
+      [isActive, id]
+    );
+
+    logger.info({ targetUserId: id, isActive, updatedBy: req.user.id }, 'User active status updated by Admin');
 
     res.json({
       user: result.rows[0],
@@ -237,4 +319,5 @@ module.exports = {
   getMe,
   getUsers,
   updateUserRole,
+  updateUserRoleStatus,
 };

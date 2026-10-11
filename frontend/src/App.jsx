@@ -7,7 +7,10 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { UsersPage } from './pages/UsersPage';
+import { ProjectsListPage } from './pages/ProjectsListPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
+
 import { PageHeader } from './components/ui';
 
 function PlaceholderPage({ title, description }) {
@@ -58,11 +61,23 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <PlaceholderPage title="Projects" description="Manage research projects, members, and milestones." />
+                  <ProjectsListPage />
                 </AppShell>
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/projects/:id"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ProjectDetailPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
 
           <Route
             path="/equipment"
@@ -97,12 +112,12 @@ export default function App() {
             }
           />
 
-          {/* Professor-Only Protected Routes */}
+          {/* System Admin & Professor Protected Routes */}
           <Route
             path="/users"
             element={
               <ProtectedRoute>
-                <RoleRoute requiredRole="professor">
+                <RoleRoute requiredRole="admin">
                   <AppShell>
                     <UsersPage />
                   </AppShell>
@@ -117,7 +132,7 @@ export default function App() {
               <ProtectedRoute>
                 <RoleRoute requiredRole="professor">
                   <AppShell>
-                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records (Professor only)." />
+                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records." />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

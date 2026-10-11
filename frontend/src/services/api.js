@@ -70,4 +70,68 @@ export const authApi = {
     const res = await api.patch(`/auth/users/${userId}/role`, { role });
     return res.data.user;
   },
+
+  updateUserStatus: async (userId, isActive) => {
+    const res = await api.patch(`/auth/users/${userId}/status`, { isActive });
+    return res.data.user;
+  },
 };
+
+// Project API endpoints
+export const projectApi = {
+  getProjects: async () => {
+    const res = await api.get('/projects');
+    return res.data.projects;
+  },
+
+  getProjectById: async (id) => {
+    const res = await api.get(`/projects/${id}`);
+    return res.data.project;
+  },
+
+  createProject: async (projectData) => {
+    const res = await api.post('/projects', projectData);
+    return res.data.project;
+  },
+
+  updateProject: async (id, projectData) => {
+    const res = await api.patch(`/projects/${id}`, projectData);
+    return res.data.project;
+  },
+
+  updateProjectStatus: async (id, status) => {
+    const res = await api.patch(`/projects/${id}/status`, { status });
+    return res.data.project;
+  },
+
+  deleteProject: async (id) => {
+    const res = await api.delete(`/projects/${id}`);
+    return res.data;
+  },
+
+  addMember: async (projectId, userId, projectRole) => {
+    const res = await api.post(`/projects/${projectId}/members`, { userId, projectRole });
+    return res.data.member;
+  },
+
+  removeMember: async (projectId, userId) => {
+    const res = await api.delete(`/projects/${projectId}/members/${userId}`);
+    return res.data;
+  },
+
+  createMilestone: async (projectId, milestoneData) => {
+    const res = await api.post(`/projects/${projectId}/milestones`, milestoneData);
+    return res.data.milestone;
+  },
+
+  updateMilestone: async (projectId, milestoneId, milestoneData) => {
+    const res = await api.patch(`/projects/${projectId}/milestones/${milestoneId}`, milestoneData);
+    return res.data.milestone;
+  },
+
+  deleteMilestone: async (projectId, milestoneId) => {
+    const res = await api.delete(`/projects/${projectId}/milestones/${milestoneId}`);
+    return res.data;
+  },
+};
+

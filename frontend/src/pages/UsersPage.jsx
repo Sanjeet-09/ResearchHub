@@ -53,11 +53,25 @@ export const UsersPage = () => {
     }
   };
 
+  const handleStatusToggle = async (targetUserId, currentStatus) => {
+    try {
+      setUpdatingId(targetUserId);
+      const updated = await authApi.updateUserStatus(targetUserId, !currentStatus);
+      setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, is_active: updated.is_active } : u));
+      toast.success(`Account ${updated.is_active ? 'activated' : 'deactivated'}`);
+    } catch (err) {
+      toast.error('Failed to change status: ' + (err.response?.data?.error?.message || err.message));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const getRoleVariant = (role) => {
     switch (role) {
-      case 'professor': return 'accent';
-      case 'researcher': return 'info';
-      case 'student': return 'warning';
+      case 'admin': return 'accent';
+      case 'professor': return 'info';
+      case 'researcher': return 'warning';
+      case 'student': return 'neutral';
       default: return 'neutral';
     }
   };
@@ -66,7 +80,7 @@ export const UsersPage = () => {
     <div className="space-y-6">
       <PageHeader
         title="User Management"
-        description="Search lab members and adjust access roles (Professor privilege only)."
+        description="Global directory & role management (System Admin privilege strictly enforced)."
       />
 
       {/* Filter and Search Bar */}
@@ -90,6 +104,7 @@ export const UsersPage = () => {
             onChange={(e) => setRoleFilter(e.target.value)}
             options={[
               { value: '', label: 'All Roles' },
+              { value: 'admin', label: 'System Admins' },
               { value: 'professor', label: 'Professors' },
               { value: 'researcher', label: 'Researchers' },
               { value: 'student', label: 'Students' },
@@ -111,20 +126,21 @@ export const UsersPage = () => {
                 <th className="py-3 px-4">Member</th>
                 <th className="py-3 px-4">Email</th>
                 <th className="py-3 px-4">Role</th>
+                <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Registered</th>
-                <th className="py-3 px-4 text-right">Change Role</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && users.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="py-8 text-center text-txt-muted">
+                  <td colSpan="6" className="py-8 text-center text-txt-muted">
                     Loading user directory...
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="py-8 text-center text-txt-muted">
+                  <td colSpan="6" className="py-8 text-center text-txt-muted">
                     No users found matching query.
                   </td>
                 </tr>
@@ -148,24 +164,41 @@ export const UsersPage = () => {
                       </td>
                       <td className="py-3 px-4 font-mono text-txt-muted">{u.email}</td>
                       <td className="py-3 px-4">
-                        <Badge variant={getRoleVariant(u.role)}>
+                        <Badge variant={getRoleVariant(u.role)} className="uppercase text-[10px]">
                           {u.role}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant={u.is_active !== false ? 'success' : 'danger'} className="text-[10px]">
+                          {u.is_active !== false ? 'Active' : 'Deactivated'}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-txt-muted">
                         {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
                       </td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right space-x-2">
                         <select
                           value={u.role}
                           onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                          disabled={updatingId === u.id}
+                          disabled={updatingId === u.id || isSelf}
                           className="bg-surface-2 border border-border text-txt text-xs rounded-input px-2.5 py-1 focus:outline-none focus:border-accent capitalize disabled:opacity-50"
                         >
                           <option value="student">Student</option>
                           <option value="researcher">Researcher</option>
                           <option value="professor">Professor</option>
+                          <option value="admin">Admin</option>
                         </select>
+
+                        {!isSelf && (
+                          <Button
+                            variant={u.is_active !== false ? 'danger' : 'secondary'}
+                            size="sm"
+                            disabled={updatingId === u.id}
+                            onClick={() => handleStatusToggle(u.id, u.is_active !== false)}
+                          >
+                            {u.is_active !== false ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
