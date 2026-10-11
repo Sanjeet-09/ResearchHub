@@ -135,3 +135,139 @@ export const projectApi = {
   },
 };
 
+// Experiment API endpoints
+export const experimentApi = {
+  getExperiments: async (projectId) => {
+    const res = await api.get(`/projects/${projectId}/experiments`);
+    return res.data.experiments;
+  },
+
+  getExperimentById: async (projectId, experimentId) => {
+    const res = await api.get(`/projects/${projectId}/experiments/${experimentId}`);
+    return res.data;
+  },
+
+  createExperiment: async (projectId, experimentData) => {
+    const res = await api.post(`/projects/${projectId}/experiments`, experimentData);
+    return res.data.experiment;
+  },
+
+  updateExperiment: async (projectId, experimentId, experimentData) => {
+    const res = await api.patch(`/projects/${projectId}/experiments/${experimentId}`, experimentData);
+    return res.data.experiment;
+  },
+
+  deleteExperiment: async (projectId, experimentId) => {
+    const res = await api.delete(`/projects/${projectId}/experiments/${experimentId}`);
+    return res.data;
+  },
+
+  getUploadUrl: async (projectId, experimentId, fileData) => {
+    const res = await api.post(`/projects/${projectId}/experiments/${experimentId}/files/upload-url`, fileData);
+    return res.data;
+  },
+
+  uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const res = await axios.post(uploadUrl, file, {
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data;
+  },
+
+  confirmFileUpload: async (projectId, experimentId, confirmData) => {
+    const res = await api.post(`/projects/${projectId}/experiments/${experimentId}/files/confirm`, confirmData);
+    return res.data.file;
+  },
+
+  getDownloadUrl: async (projectId, experimentId, fileId) => {
+    const res = await api.get(`/projects/${projectId}/experiments/${experimentId}/files/${fileId}/download`);
+    return res.data;
+  },
+
+  deleteFile: async (projectId, experimentId, fileId) => {
+    const res = await api.delete(`/projects/${projectId}/experiments/${experimentId}/files/${fileId}`);
+    return res.data;
+  },
+
+  getExperimentLinks: async (experimentId) => {
+    const res = await api.get(`/experiments/${experimentId}/links`);
+    return res.data.links;
+  },
+};
+
+// Dataset API endpoints
+export const datasetApi = {
+  getDatasets: async (projectId) => {
+    const res = await api.get(`/projects/${projectId}/datasets`);
+    return res.data.datasets;
+  },
+
+  getDatasetById: async (projectId, datasetId) => {
+    const res = await api.get(`/projects/${projectId}/datasets/${datasetId}`);
+    return res.data;
+  },
+
+  createDataset: async (projectId, datasetData) => {
+    const res = await api.post(`/projects/${projectId}/datasets`, datasetData);
+    return res.data.dataset;
+  },
+
+  updateDataset: async (projectId, datasetId, datasetData) => {
+    const res = await api.patch(`/projects/${projectId}/datasets/${datasetId}`, datasetData);
+    return res.data.dataset;
+  },
+
+  deleteDataset: async (projectId, datasetId) => {
+    const res = await api.delete(`/projects/${projectId}/datasets/${datasetId}`);
+    return res.data;
+  },
+
+  // Version Control
+  getVersionUploadUrl: async (projectId, datasetId, fileData) => {
+    const res = await api.post(`/projects/${projectId}/datasets/${datasetId}/versions/upload-url`, fileData);
+    return res.data;
+  },
+
+  uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const res = await axios.post(uploadUrl, file, {
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data;
+  },
+
+  confirmVersion: async (projectId, datasetId, confirmData) => {
+    const res = await api.post(`/projects/${projectId}/datasets/${datasetId}/versions`, confirmData);
+    return res.data.version;
+  },
+
+  getVersionHistory: async (projectId, datasetId) => {
+    const res = await api.get(`/projects/${projectId}/datasets/${datasetId}/versions`);
+    return res.data.versions;
+  },
+
+  getVersionDownloadUrl: async (projectId, datasetId, versionId) => {
+    const res = await api.get(`/projects/${projectId}/datasets/${datasetId}/versions/${versionId}/download`);
+    return res.data;
+  },
+
+  restoreVersion: async (projectId, datasetId, versionId) => {
+    const res = await api.post(`/projects/${projectId}/datasets/${datasetId}/versions/${versionId}/restore`);
+    return res.data.version;
+  },
+};

@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { UnauthorizedError, ForbiddenError, ValidationError } = require('./errors');
-const { query } = require('./db');
+const db = require('./db');
 
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: JWT_SECRET environment variable is required in production');
@@ -83,7 +83,7 @@ const requireProjectRole = (minProjectRole) => {
       return next(new UnauthorizedError('User unauthenticated'));
     }
 
-    const projectId = req.params.projectId || req.params.id || req.body.projectId;
+    const projectId = req.params.projectId || req.params.pid || req.params.id || req.body.projectId;
     if (!projectId) {
       return next(new ForbiddenError('Project ID is required for access verification'));
     }
@@ -106,7 +106,7 @@ const requireProjectRole = (minProjectRole) => {
     }
 
     try {
-      const dbRes = await query(
+      const dbRes = await db.query(
         'SELECT project_role FROM project_members WHERE project_id = $1 AND user_id = $2',
         [projectId, req.user.id]
       );
