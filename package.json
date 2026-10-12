@@ -13,6 +13,11 @@
     "build:frontend": "npm run build --workspace=frontend",
     "dev:auth": "node services/auth/src/index.js",
     "dev:gateway": "node services/gateway/src/index.js",
+    "dev:project": "node services/project/src/index.js",
+    "dev:experiment": "node services/experiment/src/index.js",
+    "dev:dataset": "node services/dataset/src/index.js",
+    "dev:document": "node services/document/src/index.js",
+    "dev:publication": "node services/publication/src/index.js",
     "db:setup": "node scripts/db-init.js",
     "test": "npm run test --workspaces --if-present"
   },

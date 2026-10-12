@@ -44,7 +44,7 @@ async function initDb() {
     process.exit(1);
   } finally {
     if (client) client.release();
-    await pool.end().catch(() => {});
+    await pool.end().catch(() => { });
   }
 }
 

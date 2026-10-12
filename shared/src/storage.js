@@ -19,7 +19,8 @@ class LocalDiskStorageAdapter {
 
   async getSignedUploadUrl(bucket, key, contentType = 'application/octet-stream', expiresMinutes = 15) {
     // In local mode, returns a mock local API upload endpoint URL or direct token
-    const baseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:4000';
+    const rawBaseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const baseUrl = rawBaseUrl.replace(/\/api\/?$/, '');
     const filename = encodeURIComponent(key);
     return {
       uploadUrl: `${baseUrl}/api/storage/upload?bucket=${bucket}&key=${filename}`,
@@ -28,7 +29,8 @@ class LocalDiskStorageAdapter {
   }
 
   async getSignedDownloadUrl(bucket, key, expiresMinutes = 10) {
-    const baseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:4000';
+    const rawBaseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const baseUrl = rawBaseUrl.replace(/\/api\/?$/, '');
     const filename = encodeURIComponent(key);
     return `${baseUrl}/api/storage/download?bucket=${bucket}&key=${filename}`;
   }
