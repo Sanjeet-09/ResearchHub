@@ -6,6 +6,8 @@ import { PageHeader, Tabs, Card, CardHeader, CardTitle, CardContent, Badge, Butt
 import { CheckCircle2, Circle, Clock, Plus, Trash2, UserPlus, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
 import { ExperimentsTab } from '../components/experiments/ExperimentsTab';
 import { DatasetsTab } from '../components/datasets/DatasetsTab';
+import { DocumentsTab } from '../components/documents/DocumentsTab';
+import { PublicationsTab } from '../components/publications/PublicationsTab';
 
 export const ProjectDetailPage = () => {
   const { id } = useParams();
@@ -371,8 +373,18 @@ export const ProjectDetailPage = () => {
         <DatasetsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
+      {/* Documents Tab */}
+      {activeTab === 'documents' && (
+        <DocumentsTab projectId={id} isMember={isMember} isLead={isLead} />
+      )}
+
+      {/* Publications Tab */}
+      {activeTab === 'publications' && (
+        <PublicationsTab projectId={id} isMember={isMember} isLead={isLead} />
+      )}
+
       {/* Other Tab Placeholders */}
-      {!['overview', 'experiments', 'datasets'].includes(activeTab) && (
+      {!['overview', 'experiments', 'datasets', 'documents', 'publications'].includes(activeTab) && (
         <Card className="p-12 text-center text-txt-muted text-xs">
           The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in subsequent phases.
         </Card>
