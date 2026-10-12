@@ -168,10 +168,15 @@ export const experimentApi = {
   },
 
   uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rh_token') : null;
+    const headers = {
+      'Content-Type': file.type || 'application/octet-stream',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const res = await axios.post(uploadUrl, file, {
-      headers: {
-        'Content-Type': file.type || 'application/octet-stream',
-      },
+      headers,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -237,10 +242,15 @@ export const datasetApi = {
   },
 
   uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rh_token') : null;
+    const headers = {
+      'Content-Type': file.type || 'application/octet-stream',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const res = await axios.post(uploadUrl, file, {
-      headers: {
-        'Content-Type': file.type || 'application/octet-stream',
-      },
+      headers,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -271,3 +281,110 @@ export const datasetApi = {
     return res.data.version;
   },
 };
+
+// Document API endpoints
+export const documentApi = {
+  getDocuments: async (projectId, params = {}) => {
+    const res = await api.get(`/projects/${projectId}/documents`, { params });
+    return res.data;
+  },
+
+  getDocumentById: async (projectId, documentId) => {
+    const res = await api.get(`/projects/${projectId}/documents/${documentId}`);
+    return res.data.document;
+  },
+
+  getUploadUrl: async (projectId, uploadData) => {
+    const res = await api.post(`/projects/${projectId}/documents/upload-url`, uploadData);
+    return res.data;
+  },
+
+  uploadFileBinary: async (uploadUrl, file, onProgress) => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rh_token') : null;
+    const headers = {
+      'Content-Type': file.type || 'application/octet-stream',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await axios.post(uploadUrl, file, {
+      headers,
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data;
+  },
+
+  createDocument: async (projectId, documentData) => {
+    const res = await api.post(`/projects/${projectId}/documents`, documentData);
+    return res.data.document;
+  },
+
+  updateDocument: async (projectId, documentId, documentData) => {
+    const res = await api.patch(`/projects/${projectId}/documents/${documentId}`, documentData);
+    return res.data.document;
+  },
+
+  deleteDocument: async (projectId, documentId) => {
+    const res = await api.delete(`/projects/${projectId}/documents/${documentId}`);
+    return res.data;
+  },
+
+  getDownloadUrl: async (projectId, documentId) => {
+    const res = await api.get(`/projects/${projectId}/documents/${documentId}/download`);
+    return res.data.downloadUrl || res.data;
+  },
+
+  searchDocuments: async (projectId, q) => {
+    const res = await api.get(`/projects/${projectId}/documents/search`, { params: { q } });
+    return res.data.documents;
+  },
+};
+
+// Publication API endpoints
+export const publicationApi = {
+  getPublications: async (projectId, params = {}) => {
+    const res = await api.get(`/projects/${projectId}/publications`, { params });
+    return res.data.publications;
+  },
+
+  getPublicationById: async (projectId, publicationId) => {
+    const res = await api.get(`/projects/${projectId}/publications/${publicationId}`);
+    return res.data;
+  },
+
+  createPublication: async (projectId, pubData) => {
+    const res = await api.post(`/projects/${projectId}/publications`, pubData);
+    return res.data.publication;
+  },
+
+  updatePublication: async (projectId, publicationId, pubData) => {
+    const res = await api.patch(`/projects/${projectId}/publications/${publicationId}`, pubData);
+    return res.data.publication;
+  },
+
+  deletePublication: async (projectId, publicationId) => {
+    const res = await api.delete(`/projects/${projectId}/publications/${publicationId}`);
+    return res.data;
+  },
+
+  addLink: async (projectId, publicationId, linkData) => {
+    const res = await api.post(`/projects/${projectId}/publications/${publicationId}/links`, linkData);
+    return res.data;
+  },
+
+  removeLink: async (projectId, publicationId, linkData) => {
+    const res = await api.delete(`/projects/${projectId}/publications/${publicationId}/links`, { data: linkData });
+    return res.data;
+  },
+
+  getTrace: async (projectId, publicationId) => {
+    const res = await api.get(`/projects/${projectId}/publications/${publicationId}/trace`);
+    return res.data;
+  },
+};
+

@@ -72,13 +72,21 @@ app.post('/api/storage/upload', express.raw({ type: '*/*', limit: '50mb' }), asy
 
 app.get('/api/storage/download', async (req, res, next) => {
   try {
-    const { bucket, key } = req.query;
+    const { bucket, key, download } = req.query;
     if (!bucket || !key) return res.status(400).json({ error: { message: 'bucket and key required' } });
     const storage = getStorageAdapter();
     const filePath = storage._getFilePath(bucket, key);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: { message: 'File not found on local storage' } });
     }
+    const pathMod = require('path');
+    const cleanFilename = pathMod.basename(key).replace(/^\d+_/, '');
+
+    if (download === 'true' || download === '1') {
+      return res.download(filePath, cleanFilename);
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${cleanFilename}"`);
     res.sendFile(filePath);
   } catch (err) {
     next(err);
@@ -98,6 +106,15 @@ app.use('/api/projects/:pid/experiments', experimentProxy);
 // Dataset Service Proxy (/api/projects/:pid/datasets -> dataset-service)
 const datasetProxy = createServiceProxy(() => process.env.SERVICE_URL_DATASET || 'http://localhost:5004', '/api');
 app.use('/api/projects/:pid/datasets', datasetProxy);
+
+// Document Service Proxy (/api/projects/:pid/documents -> document-service)
+const documentProxy = createServiceProxy(() => process.env.SERVICE_URL_DOCUMENT || 'http://localhost:5005', '/api');
+app.use('/api/projects/:pid/documents', documentProxy);
+
+// Publication Service Proxy (/api/publications & /api/projects/:pid/publications -> publication-service)
+const publicationProxy = createServiceProxy(() => process.env.SERVICE_URL_PUBLICATION || 'http://localhost:5006', '/api');
+app.use('/api/publications', publicationProxy);
+app.use('/api/projects/:pid/publications', publicationProxy);
 
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
 const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
