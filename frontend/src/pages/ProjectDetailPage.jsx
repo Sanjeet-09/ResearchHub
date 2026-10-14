@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { projectApi, authApi } from '../services/api';
 import { PageHeader, Tabs, Card, CardHeader, CardTitle, CardContent, Badge, Button, Input, Select, Checkbox, Skeleton, Dialog, ConfirmDialog } from '../components/ui';
@@ -12,10 +12,24 @@ import { PublicationsTab } from '../components/publications/PublicationsTab';
 export const ProjectDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser } = useAuth();
 
   const [project, setProject] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const initialTab = searchParams.get('tab') || 'overview';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (newTab) => {
+    setActiveTab(newTab);
+    setSearchParams({ tab: newTab });
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -218,7 +232,7 @@ export const ProjectDetailPage = () => {
       />
 
       {/* Underline Tabs Layout (Section 3.3) */}
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <Tabs tabs={tabs} activeTab={activeTab} onChange={handleTabChange} />
 
       {/* Overview Tab Content */}
       {activeTab === 'overview' && (
@@ -228,7 +242,7 @@ export const ProjectDetailPage = () => {
             {/* Status & Settings Card */}
             <Card className="p-6 space-y-4">
               <h3 className="text-sm font-semibold text-txt uppercase tracking-wider">Project Control & Settings</h3>
-              
+
               <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
                 <div className="space-y-1">
                   <span className="text-xs text-txt-muted block font-medium">Project Lifecycle Status</span>
@@ -238,11 +252,10 @@ export const ProjectDetailPage = () => {
                         <button
                           key={st}
                           onClick={() => handleStatusChange(st)}
-                          className={`px-2.5 py-1 rounded text-xs capitalize transition-colors ${
-                            project.status === st
+                          className={`px-2.5 py-1 rounded text-xs capitalize transition-colors ${project.status === st
                               ? 'bg-accent text-white font-semibold'
                               : 'bg-surface-2 text-txt-muted hover:text-txt border border-border'
-                          }`}
+                            }`}
                         >
                           {st.replace('_', ' ')}
                         </button>

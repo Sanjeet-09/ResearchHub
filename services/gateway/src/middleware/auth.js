@@ -7,6 +7,10 @@ const PUBLIC_PATHS = [
   '/auth/register',
   '/api/auth/login',
   '/api/auth/register',
+  '/storage/upload',
+  '/storage/download',
+  '/api/storage/upload',
+  '/api/storage/download',
 ];
 
 const gatewayAuthMiddleware = (req, res, next) => {
