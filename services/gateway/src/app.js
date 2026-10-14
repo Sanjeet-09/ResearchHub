@@ -116,6 +116,11 @@ const publicationProxy = createServiceProxy(() => process.env.SERVICE_URL_PUBLIC
 app.use('/api/publications', publicationProxy);
 app.use('/api/projects/:pid/publications', publicationProxy);
 
+// Equipment Service Proxy (/api/equipment & /api/reservations -> equipment-service)
+const equipmentProxy = createServiceProxy(() => process.env.SERVICE_URL_EQUIPMENT || 'http://localhost:5007', '/api');
+app.use('/api/equipment', equipmentProxy);
+app.use('/api/reservations', equipmentProxy);
+
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
 const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
 app.use('/api/projects', projectProxy);

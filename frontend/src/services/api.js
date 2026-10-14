@@ -388,3 +388,60 @@ export const publicationApi = {
   },
 };
 
+// Equipment & Reservations API endpoints
+export const equipmentApi = {
+  getEquipment: async (params = {}) => {
+    const res = await api.get('/equipment', { params });
+    return res.data.equipment;
+  },
+
+  getEquipmentById: async (id) => {
+    const res = await api.get(`/equipment/${id}`);
+    return res.data.equipment;
+  },
+
+  createEquipment: async (equipmentData) => {
+    const res = await api.post('/equipment', equipmentData);
+    return res.data.equipment;
+  },
+
+  updateEquipment: async (id, equipmentData) => {
+    const res = await api.patch(`/equipment/${id}`, equipmentData);
+    return res.data.equipment;
+  },
+
+  deleteEquipment: async (id) => {
+    const res = await api.delete(`/equipment/${id}`);
+    return res.data;
+  },
+
+  getCalendar: async (equipmentId, from, to) => {
+    const params = {};
+    if (from) params.from = from;
+    if (to) params.to = to;
+    const res = await api.get(`/equipment/${equipmentId}/calendar`, { params });
+    return res.data;
+  },
+
+  createReservation: async (reservationData) => {
+    const res = await api.post('/reservations', reservationData);
+    return res.data.reservation;
+  },
+
+  getMyReservations: async () => {
+    const res = await api.get('/reservations/mine');
+    return res.data.reservations;
+  },
+
+  getReservationHistory: async (params = {}) => {
+    const res = await api.get('/reservations/history', { params });
+    return res.data;
+  },
+
+  cancelReservation: async (id) => {
+    const res = await api.patch(`/reservations/${id}/cancel`);
+    return res.data;
+  },
+};
+
+
