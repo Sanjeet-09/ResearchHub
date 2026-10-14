@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { UsersPage } from './pages/UsersPage';
 import { ProjectsListPage } from './pages/ProjectsListPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { EquipmentPage } from './pages/EquipmentPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 
 import { PageHeader } from './components/ui';
@@ -84,7 +85,7 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <PlaceholderPage title="Equipment Reservation" description="Book lab instruments and manage hardware schedules." />
+                  <EquipmentPage />
                 </AppShell>
               </ProtectedRoute>
             }
