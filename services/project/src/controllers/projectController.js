@@ -7,6 +7,8 @@ const {
   ForbiddenError,
   NotFoundError,
   logger,
+  emitActivityEvent,
+  emitNotification,
 } = require('@rh/shared');
 
 const createProjectSchema = z.object({
@@ -194,6 +196,15 @@ const createProject = async (req, res, next) => {
 
     logger.info({ projectId: project.id, ownerId: userId }, 'Project created successfully');
 
+    emitActivityEvent({
+      projectId: project.id,
+      actorId: userId,
+      action: 'created_project',
+      entityType: 'project',
+      entityId: project.id,
+      summary: `Created project "${project.title}"`,
+    });
+
     res.status(201).json({ project });
   } catch (err) {
     next(err);
@@ -283,6 +294,15 @@ const updateProjectStatus = async (req, res, next) => {
       return next(new NotFoundError('Project not found'));
     }
 
+    emitActivityEvent({
+      projectId: id,
+      actorId: req.user.id,
+      action: 'updated_status',
+      entityType: 'project',
+      entityId: id,
+      summary: `Project status changed to "${status}"`,
+    });
+
     res.json({ project: result.rows[0] });
   } catch (err) {
     next(err);
@@ -336,7 +356,26 @@ const addMember = async (req, res, next) => {
       [id, userId, projectRole]
     );
 
-    res.status(201).json({ member: result.rows[0] });
+    const member = result.rows[0];
+
+    emitActivityEvent({
+      projectId: id,
+      actorId: req.user.id,
+      action: 'added_member',
+      entityType: 'member',
+      entityId: userId,
+      summary: `Added member to project with role "${projectRole}"`,
+    });
+
+    emitNotification({
+      userId: userId,
+      type: 'project_added',
+      title: 'Added to Project',
+      body: `You were added to the project as a ${projectRole}.`,
+      link: `/projects/${id}`,
+    });
+
+    res.status(201).json({ member });
   } catch (err) {
     next(err);
   }

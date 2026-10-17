@@ -5,6 +5,8 @@ const {
   NotFoundError,
   ForbiddenError,
   logger,
+  emitActivityEvent,
+  emitNotification,
 } = require('@rh/shared');
 
 const uuidSchema = z.string().uuid();
@@ -98,6 +100,15 @@ const createPublication = async (req, res, next) => {
     const publication = dbRes.rows[0];
     logger.info({ publicationId: publication.id, projectId: pid }, 'Publication created');
 
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'created_publication',
+      entityType: 'publication',
+      entityId: publication.id,
+      summary: `Created publication "${publication.title}"`,
+    });
+
     res.status(201).json({ publication });
   } catch (err) {
     next(err);
@@ -182,6 +193,27 @@ const updatePublication = async (req, res, next) => {
     );
 
     logger.info({ publicationId: id }, 'Publication updated');
+
+    if (status !== current.status && current.created_by) {
+      emitNotification({
+        userId: current.created_by,
+        type: 'publication_status',
+        title: 'Publication Status Changed',
+        body: `Publication "${title}" status changed to ${status}.`,
+        link: `/projects/${pid}?tab=publications`,
+      });
+    }
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'updated_publication',
+      entityType: 'publication',
+      entityId: id,
+      summary: `Updated publication "${title}"${status !== current.status ? ` (status: ${status})` : ''}`,
+      metadata: { status, previousStatus: current.status },
+    });
+
     res.json({ publication: dbRes.rows[0] });
   } catch (err) {
     next(err);
@@ -206,6 +238,15 @@ const deletePublication = async (req, res, next) => {
 
     await query('DELETE FROM publications WHERE id = $1', [id]);
     logger.info({ publicationId: id }, 'Publication deleted');
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'deleted_publication',
+      entityType: 'publication',
+      entityId: id,
+      summary: `Deleted publication "${existing.rows[0].title}"`,
+    });
 
     res.json({ message: 'Publication deleted successfully' });
   } catch (err) {

@@ -444,4 +444,36 @@ export const equipmentApi = {
   },
 };
 
+// Activity & Audit API
+export const activityApi = {
+  getProjectTimeline: async (projectId, params = {}) => {
+    const res = await api.get(`/projects/${projectId}/timeline`, { params });
+    return res.data;
+  },
+
+  getAuditLogs: async (params = {}) => {
+    const res = await api.get('/audit', { params });
+    return res.data;
+  },
+};
+
+// Notification API
+export const notificationApi = {
+  getNotifications: async (params = {}) => {
+    const res = await api.get('/notifications', { params });
+    return res.data;
+  },
+
+  markAsRead: async (id) => {
+    const res = await api.patch(`/notifications/${id}/read`);
+    return res.data.notification;
+  },
+
+  markAllAsRead: async () => {
+    const res = await api.post('/notifications/read-all');
+    return res.data;
+  },
+};
+
+
 
