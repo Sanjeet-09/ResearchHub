@@ -121,10 +121,12 @@ const equipmentProxy = createServiceProxy(() => process.env.SERVICE_URL_EQUIPMEN
 app.use('/api/equipment', equipmentProxy);
 app.use('/api/reservations', equipmentProxy);
 
-// Activity Service Proxy (/api/projects/:pid/timeline & /api/audit -> activity-service)
+// Activity Service Proxy (/api/projects/:pid/timeline, /api/projects/:pid/presence, /api/activity & /api/audit -> activity-service)
 const activityProxy = createServiceProxy(() => process.env.SERVICE_URL_ACTIVITY || 'http://localhost:5008', '/api');
 app.use('/api/audit', activityProxy);
+app.use('/api/activity', activityProxy);
 app.use('/api/projects/:pid/timeline', activityProxy);
+app.use('/api/projects/:pid/presence', activityProxy);
 
 // Notification Service Proxy (/api/notifications -> notification-service)
 const notificationProxy = createServiceProxy(() => process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009', '/api');

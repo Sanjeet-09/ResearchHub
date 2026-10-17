@@ -5,6 +5,8 @@ const {
   recordAudit,
   getProjectTimeline,
   getAuditLogs,
+  recordPresenceHeartbeat,
+  getProjectPresence,
 } = require('../controllers/activityController');
 
 const router = express.Router();
@@ -16,5 +18,10 @@ router.post('/internal/audit', recordAudit);
 // Protected endpoints
 router.get('/projects/:pid/timeline', authenticateToken, getProjectTimeline);
 router.get('/audit', authenticateToken, getAuditLogs);
+
+// Presence endpoints
+router.post('/activity/presence/heartbeat', authenticateToken, recordPresenceHeartbeat);
+router.post('/presence/heartbeat', authenticateToken, recordPresenceHeartbeat);
+router.get('/projects/:pid/presence', authenticateToken, getProjectPresence);
 
 module.exports = router;

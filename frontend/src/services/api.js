@@ -444,7 +444,7 @@ export const equipmentApi = {
   },
 };
 
-// Activity & Audit API
+// Activity, Audit & Presence API
 export const activityApi = {
   getProjectTimeline: async (projectId, params = {}) => {
     const res = await api.get(`/projects/${projectId}/timeline`, { params });
@@ -453,6 +453,16 @@ export const activityApi = {
 
   getAuditLogs: async (params = {}) => {
     const res = await api.get('/audit', { params });
+    return res.data;
+  },
+
+  sendPresenceHeartbeat: async (data = {}) => {
+    const res = await api.post('/activity/presence/heartbeat', data);
+    return res.data;
+  },
+
+  getProjectPresence: async (projectId) => {
+    const res = await api.get(`/projects/${projectId}/presence`);
     return res.data;
   },
 };
