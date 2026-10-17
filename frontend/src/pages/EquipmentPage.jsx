@@ -538,6 +538,12 @@ export const EquipmentPage = () => {
       return;
     }
 
+    const now = new Date();
+    if (endDateTime <= now || startDateTime < new Date(now.getTime() - 2 * 60 * 1000)) {
+      setBookingConflictError('Cannot book a reservation in the past. Please select a future time slot.');
+      return;
+    }
+
     try {
       setBookingLoading(true);
       await equipmentApi.createReservation({
@@ -972,6 +978,8 @@ export const EquipmentPage = () => {
                   variant="primary"
                   size="sm"
                   icon={Plus}
+                  disabled={selectedCalendarDate < formatLocalDate(new Date())}
+                  title={selectedCalendarDate < formatLocalDate(new Date()) ? 'Cannot book for a past date' : ''}
                   onClick={() => handleOpenBookingModal(selectedEquipmentId, selectedCalendarDate)}
                 >
                   Book for Selected Date
@@ -1119,21 +1127,27 @@ export const EquipmentPage = () => {
                         </div>
 
                         {/* Quick Book Button for this Day */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`w-full text-[11px] py-1 border border-dashed transition-all ${
-                            isSelected
-                              ? 'border-accent text-accent bg-accent/10 opacity-100 font-semibold'
-                              : 'border-border/60 hover:border-accent text-txt-muted hover:text-accent opacity-70 group-hover:opacity-100'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenBookingModal(selectedEquipmentId, dateString);
-                          }}
-                        >
-                          + Book {day.toLocaleDateString(undefined, { weekday: 'short' })}
-                        </Button>
+                        {dateString < formatLocalDate(new Date()) ? (
+                          <div className="w-full text-[10px] py-1 text-center text-txt-faint font-mono border border-border/40 rounded bg-surface-2/30 select-none">
+                            Past
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`w-full text-[11px] py-1 border border-dashed transition-all ${
+                              isSelected
+                                ? 'border-accent text-accent bg-accent/10 opacity-100 font-semibold'
+                                : 'border-border/60 hover:border-accent text-txt-muted hover:text-accent opacity-70 group-hover:opacity-100'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenBookingModal(selectedEquipmentId, dateString);
+                            }}
+                          >
+                            + Book {day.toLocaleDateString(undefined, { weekday: 'short' })}
+                          </Button>
+                        )}
                       </div>
                     );
                   })}
@@ -1379,6 +1393,7 @@ export const EquipmentPage = () => {
               <CalendarIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-txt-faint pointer-events-none" />
               <input
                 type="date"
+                min={formatLocalDate(new Date())}
                 value={bookDate}
                 onChange={(e) => setBookDate(e.target.value)}
                 className="w-full bg-surface-2 border border-border rounded-input pl-9 pr-3 py-2 text-xs text-txt font-mono focus:outline-none focus:border-accent"

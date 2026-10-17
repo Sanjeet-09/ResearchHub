@@ -216,6 +216,11 @@ describe('Equipment Service', () => {
 
   // 4. Reservations & Overlap Prevention (409 Conflict)
   describe('Reservations', () => {
+    const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const futureEnd = new Date(Date.now() + 26 * 60 * 60 * 1000).toISOString();
+    const futureOverlap = new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString();
+    const futureOverlapEnd = new Date(Date.now() + 27 * 60 * 60 * 1000).toISOString();
+
     it('POST /reservations creates a valid booking for student or researcher', async () => {
       // 1. check equipment exists and is active
       mockQuery.mockResolvedValueOnce({ rows: [{ id: EQ_ID, name: 'SEM-500', is_active: true }] });
@@ -227,8 +232,8 @@ describe('Equipment Service', () => {
         equipment_id: EQ_ID,
         user_id: studentId,
         project_id: PROJ_ID,
-        start_time: '2026-10-15T10:00:00.000Z',
-        end_time: '2026-10-15T12:00:00.000Z',
+        start_time: futureStart,
+        end_time: futureEnd,
         status: 'booked',
       };
       mockQuery.mockResolvedValueOnce({ rows: [newRes] });
@@ -238,8 +243,8 @@ describe('Equipment Service', () => {
         .set('Authorization', `Bearer ${studentToken}`)
         .send({
           equipmentId: EQ_ID,
-          startTime: '2026-10-15T10:00:00.000Z',
-          endTime: '2026-10-15T12:00:00.000Z',
+          startTime: futureStart,
+          endTime: futureEnd,
           projectId: PROJ_ID,
         });
 
@@ -253,7 +258,7 @@ describe('Equipment Service', () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: EQ_ID, name: 'SEM-500', is_active: true }] });
       // 2. overlap found!
       mockQuery.mockResolvedValueOnce({
-        rows: [{ id: 'existing-res-id', start_time: '2026-10-15T10:00:00.000Z', end_time: '2026-10-15T12:00:00.000Z' }],
+        rows: [{ id: 'existing-res-id', start_time: futureStart, end_time: futureEnd }],
       });
 
       const res = await request(app)
@@ -261,8 +266,8 @@ describe('Equipment Service', () => {
         .set('Authorization', `Bearer ${studentToken}`)
         .send({
           equipmentId: EQ_ID,
-          startTime: '2026-10-15T11:00:00.000Z',
-          endTime: '2026-10-15T13:00:00.000Z',
+          startTime: futureOverlap,
+          endTime: futureOverlapEnd,
         });
 
       expect(res.status).toBe(409);
@@ -285,8 +290,8 @@ describe('Equipment Service', () => {
         .set('Authorization', `Bearer ${studentToken}`)
         .send({
           equipmentId: EQ_ID,
-          startTime: '2026-10-15T10:00:00.000Z',
-          endTime: '2026-10-15T12:00:00.000Z',
+          startTime: futureStart,
+          endTime: futureEnd,
         });
 
       expect(res.status).toBe(409);
@@ -300,12 +305,29 @@ describe('Equipment Service', () => {
         .set('Authorization', `Bearer ${studentToken}`)
         .send({
           equipmentId: EQ_ID,
-          startTime: '2026-10-15T12:00:00.000Z',
-          endTime: '2026-10-15T10:00:00.000Z',
+          startTime: futureEnd,
+          endTime: futureStart,
         });
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain('End time must be after start time');
+    });
+
+    it('POST /reservations returns 400 when start time is in the past', async () => {
+      const pastStart = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const pastEnd = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
+
+      const res = await request(app)
+        .post('/reservations')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          equipmentId: EQ_ID,
+          startTime: pastStart,
+          endTime: pastEnd,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('Cannot book a reservation in the past');
     });
 
     it('POST /reservations returns 400 when equipment is inactive', async () => {
@@ -316,8 +338,8 @@ describe('Equipment Service', () => {
         .set('Authorization', `Bearer ${studentToken}`)
         .send({
           equipmentId: EQ_ID,
-          startTime: '2026-10-15T10:00:00.000Z',
-          endTime: '2026-10-15T12:00:00.000Z',
+          startTime: futureStart,
+          endTime: futureEnd,
         });
 
       expect(res.status).toBe(400);

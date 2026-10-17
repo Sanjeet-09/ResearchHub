@@ -10,6 +10,8 @@ import { UsersPage } from './pages/UsersPage';
 import { ProjectsListPage } from './pages/ProjectsListPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { EquipmentPage } from './pages/EquipmentPage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { AuditLogPage } from './pages/AuditLogPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 
 import { PageHeader } from './components/ui';
@@ -107,7 +109,7 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <PlaceholderPage title="Notifications" description="View system alerts and project activity updates." />
+                  <NotificationsPage />
                 </AppShell>
               </ProtectedRoute>
             }
@@ -133,7 +135,7 @@ export default function App() {
               <ProtectedRoute>
                 <RoleRoute requiredRole="professor">
                   <AppShell>
-                    <PlaceholderPage title="Audit Log" description="Review system security and activity audit records." />
+                    <AuditLogPage />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

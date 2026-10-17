@@ -6,6 +6,7 @@ const {
   ForbiddenError,
   logger,
   getStorageAdapter,
+  emitActivityEvent,
 } = require('@rh/shared');
 
 const uuidSchema = z.string().uuid();
@@ -85,6 +86,15 @@ const createExperiment = async (req, res, next) => {
     const experiment = dbRes.rows[0];
     logger.info({ experimentId: experiment.id, projectId: pid }, 'Experiment created successfully');
 
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'created_experiment',
+      entityType: 'experiment',
+      entityId: experiment.id,
+      summary: `Created experiment "${experiment.title}"`,
+    });
+
     res.status(201).json({ experiment });
   } catch (err) {
     next(err);
@@ -161,6 +171,17 @@ const updateExperiment = async (req, res, next) => {
     );
 
     logger.info({ experimentId: id }, 'Experiment updated successfully');
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'updated_experiment',
+      entityType: 'experiment',
+      entityId: id,
+      summary: `Updated experiment "${title}" (status: ${status})`,
+      metadata: { status, previousStatus: current.status },
+    });
+
     res.json({ experiment: dbRes.rows[0] });
   } catch (err) {
     next(err);
@@ -182,6 +203,15 @@ const deleteExperiment = async (req, res, next) => {
 
     await query('DELETE FROM experiments WHERE id = $1 AND project_id = $2', [id, pid]);
     logger.info({ experimentId: id }, 'Experiment deleted successfully');
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'deleted_experiment',
+      entityType: 'experiment',
+      entityId: id,
+      summary: `Deleted experiment "${existing.rows[0].title}"`,
+    });
 
     res.json({ message: 'Experiment deleted successfully' });
   } catch (err) {

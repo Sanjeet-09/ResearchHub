@@ -6,6 +6,8 @@ const {
   ForbiddenError,
   ConflictError,
   logger,
+  emitNotification,
+  emitActivityEvent,
 } = require('@rh/shared');
 
 const uuidSchema = z.string().uuid('Invalid UUID format');
@@ -262,6 +264,12 @@ const createReservation = async (req, res, next) => {
       throw new ValidationError('End time must be after start time');
     }
 
+    const now = new Date();
+    // Allow a 2-minute buffer for request latency / slight clock drift
+    if (end <= now || start < new Date(now.getTime() - 2 * 60 * 1000)) {
+      throw new ValidationError('Cannot book a reservation in the past. Please select a future time slot.');
+    }
+
     // Check equipment exists and is active
     const eqRes = await query('SELECT id, name, is_active FROM equipment WHERE id = $1', [equipmentId]);
     if (eqRes.rows.length === 0) {
@@ -297,6 +305,26 @@ const createReservation = async (req, res, next) => {
 
       const reservation = dbRes.rows[0];
       logger.info({ reservationId: reservation.id, equipmentId, userId: req.user.id }, 'Reservation created');
+
+      emitNotification({
+        userId: req.user.id,
+        type: 'reservation_confirmed',
+        title: 'Reservation Confirmed',
+        body: `Your reservation for "${eqRes.rows[0].name}" has been confirmed.`,
+        link: '/equipment',
+      });
+
+      if (projectId) {
+        emitActivityEvent({
+          projectId,
+          actorId: req.user.id,
+          action: 'reserved_equipment',
+          entityType: 'equipment',
+          entityId: equipmentId,
+          summary: `Reserved equipment "${eqRes.rows[0].name}"`,
+          metadata: { reservationId: reservation.id, startTime: start.toISOString(), endTime: end.toISOString() },
+        });
+      }
 
       res.status(201).json({ reservation });
     } catch (insertErr) {
@@ -444,6 +472,26 @@ const cancelReservation = async (req, res, next) => {
     );
 
     logger.info({ reservationId: id, cancelledBy: req.user.id }, 'Reservation cancelled');
+
+    emitNotification({
+      userId: reservation.user_id,
+      type: 'reservation_cancelled',
+      title: 'Reservation Cancelled',
+      body: 'Your laboratory reservation has been cancelled.',
+      link: '/equipment',
+    });
+
+    if (reservation.project_id) {
+      emitActivityEvent({
+        projectId: reservation.project_id,
+        actorId: req.user.id,
+        action: 'cancelled_equipment_reservation',
+        entityType: 'equipment',
+        entityId: reservation.equipment_id,
+        summary: 'Cancelled equipment reservation',
+        metadata: { reservationId: id },
+      });
+    }
 
     res.json({
       message: 'Reservation cancelled successfully',

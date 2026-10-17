@@ -5,6 +5,8 @@ const {
   NotFoundError,
   logger,
   getStorageAdapter,
+  emitActivityEvent,
+  emitNotification,
 } = require('@rh/shared');
 
 const uuidSchema = z.string().uuid();
@@ -101,6 +103,15 @@ const createDataset = async (req, res, next) => {
 
     const dataset = dbRes.rows[0];
     logger.info({ datasetId: dataset.id, projectId: pid }, 'Dataset created');
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'created_dataset',
+      entityType: 'dataset',
+      entityId: dataset.id,
+      summary: `Created dataset "${dataset.name}"`,
+    });
 
     res.status(201).json({ dataset });
   } catch (err) {
@@ -327,6 +338,26 @@ const confirmVersion = async (req, res, next) => {
 
     logger.info({ datasetId: id, versionId: version.id, versionNo: newVersionNo }, 'Dataset version confirmed');
 
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'created_dataset_version',
+      entityType: 'dataset',
+      entityId: id,
+      summary: `Uploaded version v${newVersionNo} for dataset`,
+      metadata: { versionNo: newVersionNo, sizeBytes },
+    });
+
+    if (dsRes.rows[0]?.created_by) {
+      emitNotification({
+        userId: dsRes.rows[0].created_by,
+        type: 'dataset_version',
+        title: 'New Dataset Version',
+        body: `Version v${newVersionNo} uploaded for dataset "${dsRes.rows[0].name}".`,
+        link: `/projects/${pid}?tab=datasets`,
+      });
+    }
+
     res.status(201).json({ version });
   } catch (err) {
     next(err);
@@ -473,6 +504,26 @@ const restoreVersion = async (req, res, next) => {
       { datasetId: id, newVersionId: newVersion.id, restoredFromVersionId: versionId },
       'Dataset version restored'
     );
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'restored_dataset_version',
+      entityType: 'dataset',
+      entityId: id,
+      summary: `Restored dataset "${dsRes.rows[0].name}" to v${newVersionNo} (from v${source.version_no})`,
+      metadata: { newVersionNo, restoredFromVersionNo: source.version_no },
+    });
+
+    if (dsRes.rows[0]?.created_by) {
+      emitNotification({
+        userId: dsRes.rows[0].created_by,
+        type: 'dataset_version',
+        title: 'Dataset Version Restored',
+        body: `Dataset "${dsRes.rows[0].name}" was restored to v${newVersionNo}.`,
+        link: `/projects/${pid}?tab=datasets`,
+      });
+    }
 
     res.status(201).json({ version: newVersion });
   } catch (err) {

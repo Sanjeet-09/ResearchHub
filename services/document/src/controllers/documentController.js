@@ -5,6 +5,7 @@ const {
   NotFoundError,
   logger,
   getStorageAdapter,
+  emitActivityEvent,
 } = require('@rh/shared');
 
 const uuidSchema = z.string().uuid();
@@ -159,6 +160,15 @@ const createDocument = async (req, res, next) => {
     const document = dbRes.rows[0];
     logger.info({ documentId: document.id, projectId: pid }, 'Document created');
 
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'uploaded_document',
+      entityType: 'document',
+      entityId: document.id,
+      summary: `Uploaded document "${document.title}" (${document.doc_type})`,
+    });
+
     res.status(201).json({ document });
   } catch (err) {
     next(err);
@@ -265,6 +275,16 @@ const deleteDocument = async (req, res, next) => {
     }
 
     logger.info({ documentId: id }, 'Document deleted');
+
+    emitActivityEvent({
+      projectId: pid,
+      actorId: req.user.id,
+      action: 'deleted_document',
+      entityType: 'document',
+      entityId: id,
+      summary: `Deleted document "${existing.rows[0].title}"`,
+    });
+
     res.json({ message: 'Document deleted successfully' });
   } catch (err) {
     next(err);

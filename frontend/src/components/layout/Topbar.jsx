@@ -57,15 +57,16 @@ export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 0 }) => {
 
       {/* Right: Notifications & Avatar / Logout */}
       <div className="flex items-center gap-3">
-        <button
+        <Link
+          to="/notifications"
           className="relative p-2 rounded-input hover:bg-surface-2 text-txt-muted hover:text-txt transition-colors"
-          title="Notifications"
+          title={`Notifications${unreadNotifications > 0 ? ` (${unreadNotifications} unread)` : ''}`}
         >
           <Bell className="w-4 h-4" />
           {unreadNotifications > 0 && (
             <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent animate-pulse-soft" />
           )}
-        </button>
+        </Link>
 
         <div className="h-4 w-[1px] bg-border" />
 

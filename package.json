@@ -19,6 +19,8 @@
     "dev:document": "node services/document/src/index.js",
     "dev:publication": "node services/publication/src/index.js",
     "dev:equipment": "node services/equipment/src/index.js",
+    "dev:activity": "node services/activity/src/index.js",
+    "dev:notification": "node services/notification/src/index.js",
     "db:setup": "node scripts/db-init.js",
     "test": "npm run test --workspaces --if-present"
   },
