@@ -9,6 +9,8 @@ import { DatasetsTab } from '../components/datasets/DatasetsTab';
 import { DocumentsTab } from '../components/documents/DocumentsTab';
 import { PublicationsTab } from '../components/publications/PublicationsTab';
 import { TimelineTab } from '../components/timeline/TimelineTab';
+import { TeamActivityTab } from '../components/activity/TeamActivityTab';
+import { usePresence } from '../hooks/usePresence';
 
 export const ProjectDetailPage = () => {
   const { id } = useParams();
@@ -82,6 +84,34 @@ export const ProjectDetailPage = () => {
   const currentUserMember = project?.members?.find(m => m.user_id === currentUser?.id);
   const isLead = isProfessor || currentUserMember?.project_role === 'lead';
   const isMember = isLead || currentUserMember?.project_role === 'member';
+
+  const getTabActivity = (tab, projectTitle) => {
+    switch (tab) {
+      case 'experiments':
+        return `Reviewing experiments in ${projectTitle || 'project'}`;
+      case 'datasets':
+        return `Exploring datasets in ${projectTitle || 'project'}`;
+      case 'documents':
+        return `Browsing documents in ${projectTitle || 'project'}`;
+      case 'publications':
+        return `Checking publications in ${projectTitle || 'project'}`;
+      case 'timeline':
+        return `Viewing timeline in ${projectTitle || 'project'}`;
+      case 'activity':
+        return `Viewing team activity in ${projectTitle || 'project'}`;
+      case 'lab':
+        return `Testing environment in ${projectTitle || 'project'}`;
+      case 'overview':
+      default:
+        return `Viewing ${projectTitle || 'project overview'}`;
+    }
+  };
+
+  usePresence({
+    projectId: id,
+    currentActivity: getTabActivity(activeTab, project?.title),
+    entityType: activeTab,
+  });
 
   const handleStatusChange = async (newStatus) => {
     try {
@@ -403,8 +433,13 @@ export const ProjectDetailPage = () => {
         <TimelineTab projectId={id} />
       )}
 
+      {/* Team Activity Tab */}
+      {activeTab === 'activity' && (
+        <TeamActivityTab projectId={id} isMember={isMember} />
+      )}
+
       {/* Other Tab Placeholders */}
-      {!['overview', 'experiments', 'datasets', 'documents', 'publications', 'timeline'].includes(activeTab) && (
+      {!['overview', 'experiments', 'datasets', 'documents', 'publications', 'timeline', 'activity'].includes(activeTab) && (
         <Card className="p-12 text-center text-txt-muted text-xs">
           The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in subsequent phases.
         </Card>

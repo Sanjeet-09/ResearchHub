@@ -189,6 +189,23 @@ describe('Activity Service', () => {
       expect(res.body.events).toHaveLength(1);
     });
 
+    it('supports date range filters (from, to)', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: profId }] });
+      mockQuery.mockResolvedValueOnce({ rows: [{ project_role: 'member' }] });
+      mockQuery.mockResolvedValueOnce({ rows: [{ total: 1 }] });
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: EVENT_ID, action: 'created_experiment' }] });
+
+      const fromDate = new Date('2026-10-01T00:00:00Z').toISOString();
+      const toDate = new Date('2026-10-17T23:59:59Z').toISOString();
+
+      const res = await request(app)
+        .get(`/projects/${PID}/timeline?from=${fromDate}&to=${toDate}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.events).toHaveLength(1);
+    });
+
     it('forbids non-members from viewing project timeline with 403', async () => {
       // 1. project exists
       mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: profId }] });
@@ -333,6 +350,252 @@ describe('Activity Service', () => {
       await expect(
         mockQuery('UPDATE audit_logs SET action = "tampered" WHERE id = $1', [AUDIT_ID])
       ).rejects.toThrow('audit_logs rows are append-only and cannot be updated or deleted');
+    });
+  });
+
+  describe('Presence Heartbeat', () => {
+    it('POST /activity/presence/heartbeat records user presence and updates last_seen_at', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID }] }); // project check
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            user_id: studentId,
+            project_id: PID,
+            status: 'online',
+            current_activity: 'Editing experiment PCR run 3',
+            current_entity_type: 'experiment',
+            current_entity_id: '40000000-0000-0000-0000-000000000001',
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        ],
+      }); // insert/upsert presence
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // update users.last_seen_at
+
+      const res = await request(app)
+        .post('/activity/presence/heartbeat')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          projectId: PID,
+          currentActivity: 'Editing experiment PCR run 3',
+          entityType: 'experiment',
+          entityId: '40000000-0000-0000-0000-000000000001',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.presence.current_activity).toBe('Editing experiment PCR run 3');
+      expect(res.body.presence.status).toBe('online');
+    });
+
+    it('POST /presence/heartbeat works via direct route', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            user_id: studentId,
+            project_id: null,
+            status: 'online',
+            current_activity: 'Viewing dashboard',
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .post('/presence/heartbeat')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          currentActivity: 'Viewing dashboard',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.presence.current_activity).toBe('Viewing dashboard');
+    });
+
+    it('returns 400 for invalid project ID format', async () => {
+      const res = await request(app)
+        .post('/activity/presence/heartbeat')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          projectId: 'invalid-not-a-uuid',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('accepts currentEntityType and currentEntityId aliases', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID }] }); // project check
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            user_id: studentId,
+            project_id: PID,
+            status: 'online',
+            current_activity: 'Working on dataset',
+            current_entity_type: 'dataset',
+            current_entity_id: '40000000-0000-0000-0000-000000000001',
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // user update
+
+      const res = await request(app)
+        .post('/activity/presence/heartbeat')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          projectId: PID,
+          currentActivity: 'Working on dataset',
+          currentEntityType: 'dataset',
+          currentEntityId: '40000000-0000-0000-0000-000000000001',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.presence.current_entity_type).toBe('dataset');
+    });
+  });
+
+  describe('Project Presence (GET /projects/:pid/presence)', () => {
+    it('returns member presence with computed online, idle, and offline statuses', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: profId }] }); // project check
+      mockQuery.mockResolvedValueOnce({ rows: [{ project_role: 'member' }] }); // member check
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            user_id: studentId,
+            full_name: 'Alex Chen',
+            email: 'student@university.edu',
+            global_role: 'student',
+            project_role: 'member',
+            joined_at: new Date().toISOString(),
+            raw_status: 'online',
+            current_activity: 'Editing experiment PCR run 3',
+            current_entity_type: 'experiment',
+            current_entity_id: '40000000-0000-0000-0000-000000000001',
+            last_heartbeat_at: new Date().toISOString(),
+            seconds_since_heartbeat: 25, // < 120s => online
+            lab_session_state: null,
+          },
+          {
+            user_id: researcherId,
+            full_name: 'Dr. Grant',
+            email: 'researcher@university.edu',
+            global_role: 'researcher',
+            project_role: 'member',
+            joined_at: new Date().toISOString(),
+            raw_status: 'online',
+            current_activity: 'Viewing dataset Survey 2026',
+            current_entity_type: 'dataset',
+            current_entity_id: null,
+            last_heartbeat_at: new Date().toISOString(),
+            seconds_since_heartbeat: 300, // < 600s => idle
+            lab_session_state: null,
+          },
+          {
+            user_id: profId,
+            full_name: 'Prof Vance',
+            email: 'prof@university.edu',
+            global_role: 'professor',
+            project_role: 'lead',
+            joined_at: new Date().toISOString(),
+            raw_status: 'online',
+            current_activity: 'Working on publication',
+            current_entity_type: null,
+            current_entity_id: null,
+            last_heartbeat_at: new Date(Date.now() - 1000000).toISOString(),
+            seconds_since_heartbeat: 1000, // >= 600s => offline
+            lab_session_state: null,
+          },
+        ],
+      }); // members query
+
+      const res = await request(app)
+        .get(`/projects/${PID}/presence`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.members).toHaveLength(3);
+
+      const student = res.body.members.find((m) => m.userId === studentId);
+      expect(student.status).toBe('online');
+      expect(student.doingNow).toBe('Editing experiment PCR run 3');
+
+      const researcher = res.body.members.find((m) => m.userId === researcherId);
+      expect(researcher.status).toBe('idle');
+      expect(researcher.doingNow).toBe('Viewing dataset Survey 2026');
+
+      const prof = res.body.members.find((m) => m.userId === profId);
+      expect(prof.status).toBe('offline');
+      expect(prof.doingNow).toBe('Offline');
+    });
+
+    it('displays "Running [profile] · [minutes] min" when member has active lab session', async () => {
+      const startedAt = new Date(Date.now() - 42 * 60 * 1000).toISOString(); // 42 min ago
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: profId }] });
+      mockQuery.mockResolvedValueOnce({ rows: [{ project_role: 'member' }] });
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            user_id: studentId,
+            full_name: 'Alex Chen',
+            email: 'student@university.edu',
+            global_role: 'student',
+            project_role: 'member',
+            joined_at: new Date().toISOString(),
+            raw_status: 'online',
+            current_activity: 'In lab session',
+            current_entity_type: 'lab',
+            last_heartbeat_at: new Date().toISOString(),
+            seconds_since_heartbeat: 10,
+            lab_session_name: 'My ML Session',
+            lab_session_state: 'running',
+            lab_session_started_at: startedAt,
+            lab_profile_name: 'AI/ML — GPU',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get(`/projects/${PID}/presence`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.members[0].doingNow).toBe('Running AI/ML — GPU · 42 min');
+    });
+
+    it('forbids non-members from viewing project presence with 403', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: profId }] }); // project exists
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // member check empty (non-member)
+
+      const res = await request(app)
+        .get(`/projects/${PID}/presence`)
+        .set('Authorization', `Bearer ${nonMemberToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('allows professor role to view presence without explicit project membership', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: PID, owner_id: 'someone-else' }] });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // members query returns []
+
+      const res = await request(app)
+        .get(`/projects/${PID}/presence`)
+        .set('Authorization', `Bearer ${profToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.members).toEqual([]);
+    });
+
+    it('returns 404 for non-existent project', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // project not found
+
+      const res = await request(app)
+        .get(`/projects/${PID}/presence`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
     });
   });
 
