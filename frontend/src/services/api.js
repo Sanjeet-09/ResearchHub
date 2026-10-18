@@ -485,5 +485,48 @@ export const notificationApi = {
   },
 };
 
+// Lab API endpoints (Testing Environment & Sessions)
+export const labApi = {
+  getProfiles: async () => {
+    const res = await api.get('/lab/profiles');
+    return res.data.profiles;
+  },
+
+  createSession: async (sessionData) => {
+    const res = await api.post('/lab/sessions', sessionData);
+    return res.data.session;
+  },
+
+  getSessions: async (params = {}) => {
+    const res = await api.get('/lab/sessions', { params });
+    return res.data.sessions;
+  },
+
+  getSessionById: async (id) => {
+    const res = await api.get(`/lab/sessions/${id}`);
+    return res.data.session;
+  },
+
+  pauseSession: async (id) => {
+    const res = await api.post(`/lab/sessions/${id}/pause`);
+    return res.data.session;
+  },
+
+  resumeSession: async (id) => {
+    const res = await api.post(`/lab/sessions/${id}/resume`);
+    return res.data.session;
+  },
+
+  stopSession: async (id, exportNotebooks = false) => {
+    const res = await api.post(`/lab/sessions/${id}/stop`, { exportNotebooks });
+    return res.data.session;
+  },
+
+  exportNotebooks: async (id) => {
+    const res = await api.post(`/lab/sessions/${id}/export`);
+    return res.data;
+  },
+};
+
 
 

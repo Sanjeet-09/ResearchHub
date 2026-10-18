@@ -10,6 +10,7 @@ import { DocumentsTab } from '../components/documents/DocumentsTab';
 import { PublicationsTab } from '../components/publications/PublicationsTab';
 import { TimelineTab } from '../components/timeline/TimelineTab';
 import { TeamActivityTab } from '../components/activity/TeamActivityTab';
+import { LabTab } from '../components/lab/LabTab';
 import { usePresence } from '../hooks/usePresence';
 
 export const ProjectDetailPage = () => {
@@ -433,13 +434,18 @@ export const ProjectDetailPage = () => {
         <TimelineTab projectId={id} />
       )}
 
+      {/* Testing Environment Tab */}
+      {activeTab === 'lab' && (
+        <LabTab projectId={id} isMember={isMember} allowStudentGpu={project.allow_student_gpu} />
+      )}
+
       {/* Team Activity Tab */}
       {activeTab === 'activity' && (
         <TeamActivityTab projectId={id} isMember={isMember} />
       )}
 
       {/* Other Tab Placeholders */}
-      {!['overview', 'experiments', 'datasets', 'documents', 'publications', 'timeline', 'activity'].includes(activeTab) && (
+      {!['overview', 'experiments', 'datasets', 'documents', 'publications', 'timeline', 'lab', 'activity'].includes(activeTab) && (
         <Card className="p-12 text-center text-txt-muted text-xs">
           The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in subsequent phases.
         </Card>

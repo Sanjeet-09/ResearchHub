@@ -13,6 +13,7 @@ import { EquipmentPage } from './pages/EquipmentPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
+import { LabPage } from './pages/LabPage';
 
 import { PageHeader } from './components/ui';
 
@@ -98,7 +99,7 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <PlaceholderPage title="Testing Environment (Lab)" description="Select container profile and launch interactive Jupyter lab sessions." />
+                  <LabPage />
                 </AppShell>
               </ProtectedRoute>
             }

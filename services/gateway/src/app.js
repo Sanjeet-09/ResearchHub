@@ -132,6 +132,10 @@ app.use('/api/projects/:pid/presence', activityProxy);
 const notificationProxy = createServiceProxy(() => process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009', '/api');
 app.use('/api/notifications', notificationProxy);
 
+// Lab Service Proxy (/api/lab/* -> lab-service)
+const labProxy = createServiceProxy(() => process.env.SERVICE_URL_LAB || 'http://localhost:5010', '/api');
+app.use('/api/lab', labProxy);
+
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
 const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
 app.use('/api/projects', projectProxy);
