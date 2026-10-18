@@ -429,7 +429,120 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
     });
   });
 
-  // 8. Reconciler Endpoint
+  // 8. Delete Session
+  describe('DELETE /lab/sessions/:id', () => {
+    it('returns 404 if session not found', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .delete(`/lab/sessions/${SESSION_ID}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('rejects deletion by non-owner with 403', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: SESSION_ID, user_id: 'someone-else' }],
+      });
+      const res = await request(app)
+        .delete(`/lab/sessions/${SESSION_ID}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('successfully deletes session and returns 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: SESSION_ID, user_id: studentId }],
+        })
+        .mockResolvedValueOnce({ rows: [] }); // DELETE query
+
+      const res = await request(app)
+        .delete(`/lab/sessions/${SESSION_ID}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.message).toContain('deleted');
+    });
+  });
+
+  // 9. Update Configuration (PATCH)
+  describe('PATCH /lab/sessions/:id', () => {
+    it('updates session name and profile configuration', async () => {
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              user_id: studentId,
+              project_id: PROJ_ID,
+              profile_id: 1,
+              profile_key: 'basic-cpu',
+              allow_student_gpu: false,
+              name: 'old-name',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 2, key: 'standard-cpu', category: 'general', is_active: true }],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // UPDATE query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              name: 'updated-name',
+              profile_key: 'standard-cpu',
+              profile_name: 'Standard Compute',
+            },
+          ],
+        });
+
+      const res = await request(app)
+        .patch(`/lab/sessions/${SESSION_ID}`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ name: 'updated-name', profileKey: 'standard-cpu' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.session.name).toBe('updated-name');
+      expect(res.body.session.profile_key).toBe('standard-cpu');
+    });
+  });
+
+  // 10. Restart Session (POST restart)
+  describe('POST /lab/sessions/:id/restart', () => {
+    it('restarts stopped session and transitions to provisioning (202 Accepted)', async () => {
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              user_id: studentId,
+              project_id: PROJ_ID,
+              profile_id: 1,
+              profile_key: 'standard-cpu',
+              allow_student_gpu: false,
+              name: 'my-session',
+              state: 'stopped',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // 1 active session check (none active)
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, key: 'standard-cpu', category: 'general', is_active: true }],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // UPDATE state = provisioning
+        .mockResolvedValueOnce({ rows: [] }); // insert event 'restarted'
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/restart`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ name: 'my-session', profileKey: 'standard-cpu' });
+
+      expect(res.status).toBe(202);
+      expect(res.body.session.state).toBe('provisioning');
+    });
+  });
+
+  // 11. Reconciler Endpoint
   describe('POST /internal/reconcile', () => {
     it('executes reconciler checks cleanly and returns status ok', async () => {
       mockQuery

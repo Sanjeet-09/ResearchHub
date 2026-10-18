@@ -526,6 +526,21 @@ export const labApi = {
     const res = await api.post(`/lab/sessions/${id}/export`);
     return res.data;
   },
+
+  deleteSession: async (id) => {
+    const res = await api.delete(`/lab/sessions/${id}`);
+    return res.data;
+  },
+
+  updateSessionConfig: async (id, data) => {
+    const res = await api.patch(`/lab/sessions/${id}`, data);
+    return res.data.session;
+  },
+
+  restartSession: async (id, data = {}) => {
+    const res = await api.post(`/lab/sessions/${id}/restart`, data);
+    return res.data.session;
+  },
 };
 
 

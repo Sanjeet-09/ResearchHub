@@ -4,6 +4,7 @@ import { LabConfigPicker } from '../components/lab/LabConfigPicker';
 import { LabProgressScreen } from '../components/lab/LabProgressScreen';
 import { LabSessionView } from '../components/lab/LabSessionView';
 import { LabSessionsList } from '../components/lab/LabSessionsList';
+import { ProjectSelectCombobox } from '../components/lab/ProjectSelectCombobox';
 import { labApi, projectApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Terminal, Plus, AlertCircle, FolderKanban } from 'lucide-react';
@@ -147,25 +148,26 @@ export const LabPage = () => {
         />
 
         <Card className="p-6 bg-surface border-border space-y-6">
-          {/* Project Selector */}
+          {/* Project Selector (Combobox with direct typing & search) */}
           <div className="space-y-2 pb-4 border-b border-border">
             <label className="block text-xs font-semibold uppercase tracking-wider text-txt-muted flex items-center gap-1.5">
               <FolderKanban className="w-3.5 h-3.5 text-accent" />
               Target Research Project
             </label>
-            <select
-              className="w-full bg-surface-2 border border-border rounded-input px-3 py-2 text-xs text-txt focus:outline-none focus:border-accent"
-              value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title} ({p.status})
-                </option>
-              ))}
-            </select>
+
+            <ProjectSelectCombobox
+              projects={projects}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={(id) => setSelectedProjectId(id)}
+              userRole={user?.role}
+              onProjectCreated={(newProj) => {
+                setProjects((prev) => [newProj, ...prev]);
+                setSelectedProjectId(newProj.id);
+              }}
+            />
+
             <p className="text-[11px] text-txt-faint">
-              The session and its documents will belong to this project.
+              The session and its documents will belong to this project. Type to search or write a project name.
             </p>
           </div>
 
@@ -216,6 +218,11 @@ export const LabPage = () => {
           sessions={sessions}
           onSelectSession={handleSelectSession}
           onRefresh={fetchData}
+          onRestartSession={(restarted) => {
+            setActiveSessionId(restarted.id);
+            setViewState('progress');
+            fetchData();
+          }}
         />
       )}
     </div>

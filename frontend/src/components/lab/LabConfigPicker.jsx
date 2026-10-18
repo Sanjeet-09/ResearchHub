@@ -40,22 +40,14 @@ export const LabConfigPicker = ({
   const selectedProfile = profiles.find((p) => p.key === selectedKey);
 
   const isProfileDisabled = (profile) => {
-    if (profile.category === 'ai_ml') {
-      if (!profile.available && !profile.is_active) return true;
-      if (userRole === 'student' && !allowStudentGpu) return true;
-    }
-    return !profile.is_active;
+    if (!profile) return true;
+    return profile.is_active === false;
   };
 
   const getDisabledReason = (profile) => {
-    if (profile.category === 'ai_ml') {
-      if (profile.unavailableReason) return profile.unavailableReason;
-      if (!profile.is_active) return 'Available on request — GPU labs are disabled';
-      if (userRole === 'student' && !allowStudentGpu) {
-        return 'GPU access restricted: project lead has not enabled student GPU compute';
-      }
-    }
-    if (!profile.is_active) return 'Profile currently inactive';
+    if (!profile) return null;
+    if (profile.unavailableReason) return profile.unavailableReason;
+    if (profile.is_active === false) return 'Profile currently inactive';
     return null;
   };
 
@@ -65,7 +57,7 @@ export const LabConfigPicker = ({
       setError('Please provide a name for this session');
       return;
     }
-    if (!selectedProfile || isProfileDisabled(selectedProfile)) {
+    if (!selectedProfile) {
       setError('Selected configuration is not available');
       return;
     }
@@ -136,13 +128,11 @@ export const LabConfigPicker = ({
             return (
               <div
                 key={p.key}
-                onClick={() => !disabled && setSelectedKey(p.key)}
-                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between ${
-                  disabled
-                    ? 'opacity-40 bg-surface-2/40 border-border cursor-not-allowed'
-                    : isSelected
-                    ? 'bg-surface-3 border-accent ring-1 ring-accent cursor-pointer'
-                    : 'bg-surface hover:bg-surface-2 border-border cursor-pointer hover:border-border-strong'
+                onClick={() => setSelectedKey(p.key)}
+                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between cursor-pointer ${
+                  isSelected
+                    ? 'bg-surface-3 border-accent ring-1 ring-accent shadow-[0_0_24px_rgba(124,131,255,0.25)]'
+                    : 'bg-surface hover:bg-surface-2 border-border hover:border-accent/40 hover:shadow-[0_0_20px_rgba(124,131,255,0.12)]'
                 }`}
                 title={disabledReason || ''}
               >
@@ -211,13 +201,11 @@ export const LabConfigPicker = ({
             return (
               <div
                 key={p.key}
-                onClick={() => !disabled && setSelectedKey(p.key)}
-                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between ${
-                  disabled
-                    ? 'opacity-50 bg-surface-2/30 border-border cursor-not-allowed'
-                    : isSelected
-                    ? 'bg-surface-3 border-accent ring-1 ring-accent shadow-[0_0_24px_rgba(124,131,255,0.25)] cursor-pointer'
-                    : 'bg-surface hover:bg-surface-2 border-border cursor-pointer hover:border-accent/40 hover:shadow-[0_0_20px_rgba(124,131,255,0.12)]'
+                onClick={() => setSelectedKey(p.key)}
+                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between cursor-pointer ${
+                  isSelected
+                    ? 'bg-surface-3 border-accent ring-1 ring-accent shadow-[0_0_24px_rgba(124,131,255,0.25)]'
+                    : 'bg-surface hover:bg-surface-2 border-border hover:border-accent/40 hover:shadow-[0_0_20px_rgba(124,131,255,0.12)]'
                 }`}
                 title={disabledReason || ''}
               >
@@ -315,7 +303,7 @@ export const LabConfigPicker = ({
           <Button
             type="submit"
             variant="primary"
-            disabled={!selectedProfile || isProfileDisabled(selectedProfile) || loading}
+            disabled={!selectedProfile || loading}
             loading={loading}
             icon={Zap}
           >

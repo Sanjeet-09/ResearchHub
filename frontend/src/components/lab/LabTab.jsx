@@ -180,6 +180,11 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
           sessions={sessions}
           onSelectSession={handleSelectSession}
           onRefresh={fetchSessions}
+          onRestartSession={(restarted) => {
+            setActiveSessionId(restarted.id);
+            setViewState('progress');
+            fetchSessions();
+          }}
         />
       )}
     </div>
