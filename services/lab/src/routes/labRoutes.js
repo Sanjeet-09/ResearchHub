@@ -12,6 +12,9 @@ const {
   stopSession,
   exportSession,
   reconcile,
+  deleteSession,
+  updateSession,
+  restartSession,
 } = require('../controllers/labController');
 
 const router = express.Router();
@@ -31,6 +34,9 @@ router.get('/lab/profiles', authenticateToken, getProfiles);
 router.post('/lab/sessions', authenticateToken, createSession);
 router.get('/lab/sessions', authenticateToken, getSessions);
 router.get('/lab/sessions/:id', authenticateToken, getSession);
+router.delete('/lab/sessions/:id', authenticateToken, deleteSession);
+router.patch('/lab/sessions/:id', authenticateToken, updateSession);
+router.post('/lab/sessions/:id/restart', authenticateToken, restartSession);
 
 router.post('/lab/sessions/:id/pause', authenticateToken, pauseSession);
 router.post('/lab/sessions/:id/resume', authenticateToken, resumeSession);

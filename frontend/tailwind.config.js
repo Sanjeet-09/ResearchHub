@@ -46,6 +46,18 @@ export default {
         accent: '0 0 24px rgba(124, 131, 255, 0.25)',
         'accent-glow': '0 0 30px rgba(124, 131, 255, 0.35)',
       },
+      spacing: {
+        '58': '232px',
+        sidebar: '232px',
+      },
+      width: {
+        '58': '232px',
+        sidebar: '232px',
+      },
+      padding: {
+        '58': '232px',
+        sidebar: '232px',
+      },
     },
   },
   plugins: [],

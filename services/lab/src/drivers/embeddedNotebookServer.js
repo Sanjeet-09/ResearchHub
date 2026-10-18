@@ -36,10 +36,37 @@ function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNoteboo
       --danger: #F2555A;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-size: 13px; }
+    html, body {
+      background-color: var(--bg);
+      color: var(--text);
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-size: 13px;
+    }
     
+    /* Visible High-Contrast Scrollbars */
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--surface);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #3e3e4a;
+      border-radius: 5px;
+      border: 2px solid var(--surface);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent);
+    }
+
     /* Top Menu Bar */
-    .top-menu { height: 32px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 16px; font-size: 12px; color: var(--text-muted); user-select: none; }
+    .top-menu { height: 32px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 16px; font-size: 12px; color: var(--text-muted); user-select: none; flex-shrink: 0; }
     .top-menu .brand { color: var(--text); font-weight: 600; display: flex; align-items: center; gap: 6px; }
     .top-menu .brand svg { width: 14px; height: 14px; fill: #e46e2e; }
     .top-menu .menu-item { cursor: pointer; padding: 2px 6px; border-radius: 4px; }
@@ -48,35 +75,67 @@ function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNoteboo
     .kernel-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(61,214,140,0.4); }
 
     /* Main Area Layout */
-    .workspace { display: flex; flex: 1; overflow: hidden; }
+    .workspace {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      height: calc(100% - 32px);
+      overflow: hidden;
+    }
     
     /* Left Sidebar: File Browser */
-    .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-    .sidebar-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-    .file-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .sidebar {
+      width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .sidebar-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .file-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0; }
     .file-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none; }
     .file-item:hover { background: var(--surface-2); color: var(--text); }
     .file-item.active { background: var(--surface-3); color: var(--text); border-left: 2px solid var(--accent); }
     .file-item svg { width: 14px; height: 14px; flex-shrink: 0; }
 
     /* Center Notebook View */
-    .notebook-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
-    .notebook-tabs { height: 36px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: flex-end; padding: 0 8px; gap: 4px; }
+    .notebook-view {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .notebook-tabs { height: 36px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: flex-end; padding: 0 8px; gap: 4px; flex-shrink: 0; }
     .tab { padding: 6px 12px; background: var(--surface-2); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; font-size: 12px; display: flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; }
     .tab.active { background: var(--bg); border-color: var(--border); border-top: 2px solid var(--accent); }
     .tab-close { opacity: 0.6; cursor: pointer; }
     .tab-close:hover { opacity: 1; }
 
     /* Notebook Toolbar */
-    .notebook-toolbar { height: 38px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 8px; }
+    .notebook-toolbar { height: 38px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 8px; flex-shrink: 0; }
     .btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: background 0.15s; }
     .btn:hover { background: var(--surface-3); border-color: var(--border-strong); }
     .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .btn-primary:hover { opacity: 0.9; }
 
     /* Cells Container */
-    .cells-container { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
-    .cell { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; transition: border-color 0.15s; }
+    .cells-container {
+      flex: 1;
+      min-height: 0;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      padding: 24px 24px 120px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .cell { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; transition: border-color 0.15s; flex-shrink: 0; }
     .cell.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
     .cell-header { background: var(--surface-2); padding: 4px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--text-faint); }
     .cell-input { padding: 12px; font-family: "JetBrains Mono", monospace; font-size: 13px; line-height: 1.5; color: var(--text); outline: none; white-space: pre-wrap; min-height: 48px; }

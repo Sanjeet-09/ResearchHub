@@ -44,8 +44,8 @@ export const AppShell = ({ children }) => {
 
       <div
         className={clsx(
-          'flex-1 flex flex-col transition-all duration-200',
-          isCollapsed ? 'pl-16' : 'pl-58'
+          'flex-1 flex flex-col transition-all duration-200 min-w-0',
+          isCollapsed ? 'pl-16' : 'pl-[232px]'
         )}
       >
         <Topbar
@@ -53,7 +53,7 @@ export const AppShell = ({ children }) => {
           unreadNotifications={unreadCount}
         />
 
-        <main className="flex-1 p-8 max-w-[1200px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto min-w-0">
           {children}
         </main>
       </div>

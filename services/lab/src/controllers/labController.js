@@ -23,7 +23,7 @@ const { getDriver } = require('../drivers');
 
 const getMaxConcurrentLabs = () => parseInt(process.env.MAX_CONCURRENT_LABS || '2', 10);
 const getLabMonthlyBudget = () => parseFloat(process.env.LAB_MONTHLY_BUDGET_USD || '8');
-const isGpuLabsEnabled = () => process.env.ENABLE_GPU_LABS === 'true';
+const isGpuLabsEnabled = () => process.env.ENABLE_GPU_LABS !== 'false';
 
 // ─────────────────────────────────────────────────────────────
 // Helper: insert a lab_session_events row
@@ -967,7 +967,213 @@ function _decryptToken(encrypted, key) {
   }
 }
 
-// Expose for reconciler use
+// ─────────────────────────────────────────────────────────────
+// DELETE /lab/sessions/:id
+// ─────────────────────────────────────────────────────────────
+async function deleteSession(req, res, next) {
+  const client = await pool.connect();
+  try {
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { id } = req.params;
+
+    const { rows } = await client.query(
+      `SELECT * FROM lab_sessions WHERE id = $1`,
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to delete this session' } });
+    }
+
+    const driver = getDriver();
+    try {
+      await driver.deleteContainer(session.id);
+    } catch (e) {
+      // Best effort cleanup
+    }
+
+    await client.query(`DELETE FROM lab_sessions WHERE id = $1`, [id]);
+    res.json({ message: 'Session deleted successfully' });
+  } catch (err) {
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PATCH /lab/sessions/:id
+// Update configuration (name, profile)
+// ─────────────────────────────────────────────────────────────
+async function updateSession(req, res, next) {
+  const client = await pool.connect();
+  try {
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { id } = req.params;
+    const { name, profileKey } = req.body || {};
+
+    const { rows } = await client.query(
+      `SELECT ls.*, lp.key AS profile_key, p.allow_student_gpu
+       FROM lab_sessions ls
+       JOIN lab_profiles lp ON ls.profile_id = lp.id
+       JOIN projects p ON ls.project_id = p.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to edit this session' } });
+    }
+
+    let targetProfileId = session.profile_id;
+    if (profileKey && profileKey !== session.profile_key) {
+      const pRes = await client.query(`SELECT * FROM lab_profiles WHERE key = $1`, [profileKey]);
+      if (pRes.rows.length === 0) {
+        return res.status(400).json({ error: { code: 'INVALID_PROFILE', message: 'Profile not found' } });
+      }
+      const targetProfile = pRes.rows[0];
+
+      if (targetProfile.category === 'ai_ml') {
+        if (!isGpuLabsEnabled()) {
+          return res.status(400).json({
+            error: { code: 'GPU_DISABLED', message: 'GPU labs are currently disabled.' },
+          });
+        }
+        if (userRole === 'student' && !session.allow_student_gpu) {
+          return res.status(403).json({
+            error: { code: 'STUDENT_GPU_FORBIDDEN', message: 'Students require professor permission to select GPU profiles.' },
+          });
+        }
+      }
+      targetProfileId = targetProfile.id;
+    }
+
+    const updatedName = (name && name.trim()) ? name.trim() : session.name;
+
+    await client.query(
+      `UPDATE lab_sessions
+       SET name = $1, profile_id = $2
+       WHERE id = $3`,
+      [updatedName, targetProfileId, id]
+    );
+
+    const fresh = await client.query(
+      `SELECT ls.*, lp.key AS profile_key, lp.name AS profile_name,
+              lp.category AS profile_category, lp.cpu, lp.memory_gb,
+              lp.gpu_type, lp.gpu_count, lp.est_cost_per_hour
+       FROM lab_sessions ls
+       JOIN lab_profiles lp ON ls.profile_id = lp.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+
+    res.json({ session: fresh.rows[0] });
+  } catch (err) {
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /lab/sessions/:id/restart
+// Relaunch a stopped or failed session
+// ─────────────────────────────────────────────────────────────
+async function restartSession(req, res, next) {
+  const client = await pool.connect();
+  try {
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { id } = req.params;
+    const { name, profileKey } = req.body || {};
+
+    const { rows } = await client.query(
+      `SELECT ls.*, lp.key AS profile_key, p.allow_student_gpu
+       FROM lab_sessions ls
+       JOIN lab_profiles lp ON ls.profile_id = lp.id
+       JOIN projects p ON ls.project_id = p.id
+       WHERE ls.id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to restart this session' } });
+    }
+
+    // 1 active session per user check
+    const activeRow = await client.query(
+      `SELECT id FROM lab_sessions
+       WHERE user_id = $1 AND state IN ('provisioning','running','pausing','resuming') AND id != $2`,
+      [userId, id]
+    );
+    if (activeRow.rows.length > 0) {
+      return res.status(409).json({
+        error: { code: 'SESSION_LIMIT', message: 'You already have an active session. Please pause or stop it first.' },
+      });
+    }
+
+    let targetProfileKey = profileKey || session.profile_key;
+    const pRes = await client.query(`SELECT * FROM lab_profiles WHERE key = $1`, [targetProfileKey]);
+    if (pRes.rows.length === 0) {
+      return res.status(400).json({ error: { code: 'INVALID_PROFILE', message: 'Profile not found' } });
+    }
+    const profile = pRes.rows[0];
+
+    if (profile.category === 'ai_ml') {
+      if (!isGpuLabsEnabled()) {
+        return res.status(400).json({ error: { code: 'GPU_DISABLED', message: 'GPU labs are currently disabled.' } });
+      }
+      if (userRole === 'student' && !session.allow_student_gpu) {
+        return res.status(403).json({
+          error: { code: 'STUDENT_GPU_FORBIDDEN', message: 'Students require professor permission for GPU profiles.' },
+        });
+      }
+    }
+
+    const sessionName = (name && name.trim()) ? name.trim() : session.name;
+    const jupyterToken = crypto.randomBytes(32).toString('hex');
+    const workspacePrefix = session.workspace_prefix || `workspaces/${userId}/${session.id}`;
+
+    await client.query(
+      `UPDATE lab_sessions
+       SET state = 'provisioning', name = $1, profile_id = $2,
+           started_at = NOW(), stopped_at = NULL, paused_at = NULL,
+           last_error = NULL, url = NULL, cloud_run_service = NULL
+       WHERE id = $3`,
+      [sessionName, profile.id, id]
+    );
+    await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey });
+
+    res.status(202).json({
+      session: { id, state: 'provisioning', name: sessionName, profileKey: targetProfileKey },
+    });
+
+    client.release();
+
+    _provisionSession(id, userId, session.project_id, profile, jupyterToken, workspacePrefix, sessionName).catch(
+      (err) => logger.error({ err: err.message, sessionId: id }, 'Restart provision failed')
+    );
+  } catch (err) {
+    client.release();
+    next(err);
+  }
+}
+
+// Expose for router and reconciler use
 module.exports = {
   getProfiles,
   createSession,
@@ -978,4 +1184,7 @@ module.exports = {
   stopSession,
   exportSession,
   reconcile,
+  deleteSession,
+  updateSession,
+  restartSession,
 };

@@ -43,7 +43,7 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
     <aside
       className={clsx(
         'fixed top-0 left-0 bottom-0 z-30 bg-surface border-r border-border transition-all duration-200 flex flex-col justify-between',
-        isCollapsed ? 'w-16' : 'w-58'
+        isCollapsed ? 'w-16' : 'w-[232px]'
       )}
     >
       {/* Top Header & Wordmark */}
