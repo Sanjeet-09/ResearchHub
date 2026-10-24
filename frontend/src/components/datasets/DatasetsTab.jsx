@@ -32,7 +32,9 @@ import {
   ChevronUp,
   CheckCircle2,
   AlertCircle,
+  Copy,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const DatasetsTab = ({ projectId, isMember, isLead }) => {
   const [datasets, setDatasets] = useState([]);
@@ -510,12 +512,12 @@ export const DatasetsTab = ({ projectId, isMember, isLead }) => {
 
               {detailLoading ? (
                 <div className="space-y-3">
-                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
                 </div>
               ) : versions.length === 0 ? (
-                <div className="text-center py-8 border border-dashed border-border rounded-card">
-                  <FileText className="w-8 h-8 text-txt-faint mx-auto mb-2" />
-                  <p className="text-xs text-txt-muted">No versions yet.</p>
+                <div className="text-center py-8 rounded-xl bg-panel-2/50 border border-line p-6">
+                  <FileText className="w-8 h-8 text-text-3 mx-auto mb-2 stroke-[1.75]" />
+                  <p className="text-xs text-text-3">No versions uploaded yet.</p>
                   {isMember && (
                     <Button
                       variant="primary"
@@ -529,106 +531,125 @@ export const DatasetsTab = ({ projectId, isMember, isLead }) => {
                   )}
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {versions.map((v, idx) => {
+                <div className="relative pl-6 space-y-4 my-2 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-gradient-to-b before:from-brand-1 before:via-brand-2 before:to-brand-1/20">
+                  {versions.map((v) => {
                     const isCurrent = v.id === selectedDataset.current_version_id;
                     const isExpanded = expandedVersionId === v.id;
+                    const shortHash = v.checksum_sha256 ? `${v.checksum_sha256.substring(0, 8)}...` : null;
+
                     return (
-                      <div
-                        key={v.id}
-                        className={`rounded-lg border transition-all ${
-                          isCurrent ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface-2'
-                        }`}
-                      >
-                        {/* Version row header */}
-                        <div
-                          className="flex items-center justify-between p-3 cursor-pointer"
-                          onClick={() => setExpandedVersionId(isExpanded ? null : v.id)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold font-mono shrink-0 ${
-                              isCurrent ? 'bg-accent text-white' : 'bg-surface-3 text-txt-muted'
-                            }`}>
-                              v{v.version_no}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold text-txt">
-                                  {v.change_note || `Version ${v.version_no}`}
-                                </span>
-                                {isCurrent && (
-                                  <Badge variant="success" className="text-[9px] font-mono py-0">
-                                    Current
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 text-[10px] font-mono text-txt-faint mt-0.5">
-                                <span className="flex items-center gap-1">
-                                  <User className="w-2.5 h-2.5" />
-                                  {v.author_name || 'Unknown'}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  {new Date(v.created_at).toLocaleString()}
-                                </span>
-                                {v.size_bytes > 0 && (
-                                  <span>{formatBytes(v.size_bytes)}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                      <div key={v.id} className="relative group">
+                        {/* Timeline node dot */}
+                        <span
+                          className={`absolute -left-[29px] top-3.5 w-3 h-3 rounded-full border-2 ${
+                            isCurrent
+                              ? 'bg-brand-2 border-panel ring-2 ring-brand-2/30'
+                              : 'bg-panel-3 border-line'
+                          }`}
+                        />
 
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              icon={Download}
-                              onClick={(e) => { e.stopPropagation(); handleDownload(v.id); }}
-                            >
-                              Download
-                            </Button>
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4 text-txt-faint" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-txt-faint" />
-                            )}
-                          </div>
-                        </div>
+                        <div className="p-4 rounded-xl bg-panel border border-line hover:border-line-strong transition-all">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <Badge variant={isCurrent ? 'accent' : 'ghost'} mono>
+                                v{v.version_no}
+                              </Badge>
+                              {isCurrent && (
+                                <Badge variant="accent" size="sm" className="text-[10px]">
+                                  Current
+                                </Badge>
+                              )}
+                              <span className="text-xs font-medium text-text">
+                                {v.change_note || `Version ${v.version_no}`}
+                              </span>
+                            </div>
 
-                        {/* Expanded detail */}
-                        {isExpanded && (
-                          <div className="px-4 pb-4 space-y-3 border-t border-border/50 pt-3">
-                            {v.checksum_sha256 && (
-                              <div className="flex items-start gap-2">
-                                <Hash className="w-3 h-3 text-txt-faint mt-0.5 shrink-0" />
-                                <span className="text-[10px] font-mono text-txt-muted break-all">
-                                  SHA-256: {v.checksum_sha256}
-                                </span>
-                              </div>
-                            )}
-                            {v.metadata && Object.keys(v.metadata).length > 0 && (
-                              <div className="p-2 bg-surface rounded border border-border">
-                                <p className="text-[10px] font-mono text-txt-faint mb-1">Metadata</p>
-                                <pre className="text-[10px] font-mono text-txt-muted whitespace-pre-wrap">
-                                  {JSON.stringify(v.metadata, null, 2)}
-                                </pre>
-                              </div>
-                            )}
-                            {isMember && !isCurrent && (
+                            <div className="flex items-center gap-2">
+                              {isMember && !isCurrent && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={RotateCcw}
+                                  onClick={() => {
+                                    setRestoreTargetVersion(v);
+                                    setIsRestoreConfirm(true);
+                                  }}
+                                >
+                                  Restore
+                                </Button>
+                              )}
                               <Button
                                 variant="secondary"
                                 size="sm"
-                                icon={RotateCcw}
-                                onClick={() => {
-                                  setRestoreTargetVersion(v);
-                                  setIsRestoreConfirm(true);
-                                }}
+                                icon={Download}
+                                onClick={(e) => { e.stopPropagation(); handleDownload(v.id); }}
                               >
-                                Restore as New Version
+                                Download
                               </Button>
+                              <button
+                                type="button"
+                                onClick={() => setExpandedVersionId(isExpanded ? null : v.id)}
+                                className="p-1 text-[#8B8B96] hover:text-[#ECECEF] transition-colors"
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 stroke-[1.75]" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 stroke-[1.75]" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] font-mono text-[#8B8B96]">
+                            <span className="flex items-center gap-1">
+                              <User className="w-3 h-3 text-[#5C5C66] stroke-[1.75]" />
+                              {v.author_name || 'Unknown'}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-[#5C5C66] stroke-[1.75]" />
+                              {new Date(v.created_at).toLocaleString()}
+                            </span>
+                            {v.size_bytes > 0 && (
+                              <Badge variant="ghost" mono size="sm">
+                                {formatBytes(v.size_bytes)}
+                              </Badge>
+                            )}
+                            {v.checksum_sha256 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(v.checksum_sha256);
+                                  toast.success('SHA-256 hash copied');
+                                }}
+                                className="flex items-center gap-1 hover:text-[#ECECEF] transition-colors group/copy"
+                                title={`Full SHA-256: ${v.checksum_sha256}`}
+                              >
+                                <Hash className="w-3 h-3 text-[#5C5C66] stroke-[1.75]" />
+                                <span>{shortHash}</span>
+                                <Copy className="w-2.5 h-2.5 opacity-60 group-hover/copy:opacity-100 stroke-[1.75]" />
+                              </button>
                             )}
                           </div>
-                        )}
+
+                          {/* Expanded detail */}
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t border-[#24242A] space-y-2">
+                              {v.checksum_sha256 && (
+                                <div className="text-[10px] font-mono text-[#8B8B96] break-all">
+                                  Full SHA-256: {v.checksum_sha256}
+                                </div>
+                              )}
+                              {v.metadata && Object.keys(v.metadata).length > 0 && (
+                                <div className="p-2.5 bg-[#16161A] rounded-[8px] border border-[#24242A]">
+                                  <p className="text-[10px] font-mono text-[#5C5C66] mb-1">Metadata</p>
+                                  <pre className="text-[10px] font-mono text-[#8B8B96] whitespace-pre-wrap">
+                                    {JSON.stringify(v.metadata, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

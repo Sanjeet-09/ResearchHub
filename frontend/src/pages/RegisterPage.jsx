@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
-import { Card } from '../components/ui/Card';
-import { Sparkles, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Sparkles, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 export const RegisterPage = () => {
   const { register } = useAuth();
@@ -15,13 +13,25 @@ export const RegisterPage = () => {
   const [email, setEmail] = useState(() => searchParams.get('email') || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const calculateStrength = (pwd) => {
+    let score = 0;
+    if (pwd.length >= 8) score += 25;
+    if (/[A-Z]/.test(pwd)) score += 25;
+    if (/[0-9]/.test(pwd)) score += 25;
+    if (/[^A-Za-z0-9]/.test(pwd)) score += 25;
+    return score;
+  };
+
+  const strength = calculateStrength(password);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!fullName || !email || !password) {
-      setError('Please complete all required fields');
+      setError('Please fill in all fields');
       return;
     }
 
@@ -49,104 +59,156 @@ export const RegisterPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden">
-      {/* Background radial accent glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-accent-soft blur-[100px] pointer-events-none rounded-full" />
+    <div className="min-h-screen bg-bg text-text flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+      {/* Blueprint Grid Texture */}
+      <div className="absolute inset-0 pointer-events-none bg-grid-pattern" />
 
-      {/* Wordmark Header */}
-      <div className="flex flex-col items-center mb-8 relative z-10 text-center">
-        <div className="w-10 h-10 rounded-xl bg-accent/20 border border-accent/40 flex items-center justify-center text-accent mb-3 shadow-accent">
-          <Sparkles className="w-5 h-5" />
+      <div className="w-full max-w-[400px] flex flex-col items-center relative z-10 space-y-6">
+        {/* Logo Mark & Wordmark */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-[6px] bg-primary text-primary-fg flex items-center justify-center font-bold text-xs shadow-sm">
+            <Sparkles className="w-3.5 h-3.5 stroke-[2.2]" />
+          </div>
+          <span className="font-semibold text-base tracking-tight text-text">
+            ResearchHub
+          </span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-txt">
-          ResearchHub <span className="text-accent font-extrabold">OS</span>
-        </h1>
-        <p className="text-xs text-txt-muted mt-1 tracking-wide">
-          Create your researcher or student profile
+
+        {/* 400px Card per Section 4.6 */}
+        <div className="w-full bg-surface-1 border border-border rounded-[12px] p-6 sm:p-7 shadow-[inset_0_1px_0_#1A1A1A] space-y-5">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold text-text tracking-tight">Create your account</h1>
+            <p className="text-xs text-text-2 mt-1">
+              Join your university research workspace.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="reg-name" className="text-xs font-medium text-text-2">
+                Full name
+              </label>
+              <input
+                id="reg-name"
+                type="text"
+                placeholder="Dr. Alex Rivera"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                autoFocus
+                required
+                className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-sm text-text placeholder:text-text-3 transition-colors focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="reg-email" className="text-xs font-medium text-text-2">
+                Email
+              </label>
+              <input
+                id="reg-email"
+                type="email"
+                placeholder="name@university.edu"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-sm text-text placeholder:text-text-3 transition-colors focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="reg-password" className="text-xs font-medium text-text-2">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="reg-password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                  className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 pr-10 text-sm text-text placeholder:text-text-3 transition-colors focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-3 hover:text-text transition-colors p-1"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4 stroke-[1.75]" /> : <Eye className="w-4 h-4 stroke-[1.75]" />}
+                </button>
+              </div>
+
+              {/* Thin strength bar in text-2 per Section 4.6 */}
+              {password.length > 0 && (
+                <div className="pt-1">
+                  <div className="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-text-2 transition-all duration-200 rounded-full"
+                      style={{ width: `${strength}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="reg-confirm-password" className="text-xs font-medium text-text-2">
+                Confirm password
+              </label>
+              <input
+                id="reg-confirm-password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Repeat password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-sm text-text placeholder:text-text-3 transition-colors focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2"
+              />
+            </div>
+
+            {error && (
+              <div className="p-3 rounded-[8px] bg-danger-bg border border-danger/30 text-xs text-danger flex items-start gap-2.5 animate-in fade-in duration-150">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 stroke-[1.75]" />
+                <p className="flex-1">{error}</p>
+              </div>
+            )}
+
+            {/* Full-width 44px primary Create Account button */}
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full h-11 text-sm font-medium mt-1"
+              isLoading={loading}
+            >
+              Create Account
+            </Button>
+          </form>
+
+          {/* Muted note: new accounts start as Student per Section 4.6 */}
+          <p className="text-[11px] text-text-3 text-center">
+            New accounts start with the Student role. Contact a Professor for elevated permissions.
+          </p>
+
+          <div className="text-center pt-1 border-t border-border">
+            <p className="text-xs text-text-3 mt-3">
+              Already have an account?{' '}
+              <Link to="/login" className="text-text hover:underline font-medium transition-colors">
+                Sign in
+              </Link>
+            </p>
+          </div>
+        </div>
+
+        {/* Muted footer line */}
+        <p className="text-xs text-text-3">
+          ResearchHub OS
         </p>
       </div>
-
-      {/* Centered Auth Card */}
-      <Card className="w-full max-w-[420px] p-8 border-border bg-surface relative z-10 shadow-2xl">
-        <div className="mb-6">
-          <h2 className="text-base font-semibold text-txt">Register Profile</h2>
-          <p className="text-xs text-txt-muted mt-1">Join your university lab project environment</p>
-        </div>
-
-        {error && (
-          <div className="mb-5 p-3 rounded-input bg-danger/10 border border-danger/20 flex items-start gap-2.5 text-danger text-xs animate-in fade-in">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Full Name"
-            type="text"
-            placeholder="e.g. Dr. Jane Doe"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-            autoComplete="name"
-          />
-
-          <Input
-            label="University Email"
-            type="email"
-            placeholder="e.g. jdoe@university.edu"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-          />
-
-          <Input
-            label="Password (min 8 characters)"
-            type="password"
-            placeholder="••••••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-          />
-
-          <Input
-            label="Confirm Password"
-            type="password"
-            placeholder="••••••••••••"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-          />
-
-          {/* Role Policy notice per Section 6 */}
-          <div className="p-3 rounded-input bg-surface-2/60 border border-border flex items-start gap-2.5 text-[11px] text-txt-muted">
-            <ShieldCheck className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-            <span>
-              New accounts receive <strong className="text-txt">Student</strong> permissions by default. A Professor may elevate roles in User Management.
-            </span>
-          </div>
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-full mt-2"
-            disabled={loading}
-          >
-            {loading ? 'Creating Profile...' : 'Complete Registration'}
-          </Button>
-        </form>
-
-        {/* Login Link */}
-        <div className="mt-6 text-center text-xs text-txt-muted">
-          Already registered?{' '}
-          <Link to="/login" className="text-accent hover:text-accent-hover font-semibold transition-colors">
-            Sign in
-          </Link>
-        </div>
-      </Card>
     </div>
   );
 };

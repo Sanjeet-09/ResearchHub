@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from './components/ui';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, RoleRoute } from './components/auth/ProtectedRoute';
 import { AppShell } from './components/layout/AppShell';
@@ -14,19 +15,6 @@ import { NotificationsPage } from './pages/NotificationsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 import { LabPage } from './pages/LabPage';
-
-import { PageHeader } from './components/ui';
-
-function PlaceholderPage({ title, description }) {
-  return (
-    <div>
-      <PageHeader title={title} description={description} />
-      <div className="p-8 border border-dashed border-border rounded-card text-center text-sm text-txt-muted">
-        This module will be fully built in subsequent phases.
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   return (
@@ -61,6 +49,17 @@ export default function App() {
           />
 
           <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <DesignSystemPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
             path="/projects"
             element={
               <ProtectedRoute>
@@ -81,7 +80,6 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-
 
           <Route
             path="/equipment"
@@ -145,6 +143,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <Toaster />
       </AuthProvider>
     </BrowserRouter>
   );

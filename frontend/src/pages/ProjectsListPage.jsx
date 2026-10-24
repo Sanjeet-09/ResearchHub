@@ -1,17 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { projectApi } from '../services/api';
-import { PageHeader, Card, CardContent, Badge, Button, Input, Skeleton, EmptyState } from '../components/ui';
-import { Plus, Search, FolderKanban, Users, Calendar } from 'lucide-react';
+import {
+  PageHeader,
+  Card,
+  Badge,
+  Button,
+  Input,
+  Select,
+  Skeleton,
+  EmptyState,
+  AvatarStack,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '../components/ui';
+import { Plus, Search, FolderKanban, LayoutGrid, List } from 'lucide-react';
 import { CreateProjectModal } from '../components/projects/CreateProjectModal';
-
 
 export const ProjectsListPage = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('table'); // Table by default per Section 4.3
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -42,127 +59,230 @@ export const ProjectsListPage = () => {
     return matchesSearch && matchesStatus;
   });
 
+  const statusOptions = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'planning', label: 'Planning' },
+    { value: 'active', label: 'Active' },
+    { value: 'on_hold', label: 'On Hold' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'published', label: 'Published' },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 select-none">
       <PageHeader
-        title="Research Projects"
-        description="Directory of ongoing university research initiatives and lab workspaces."
+        title="Projects"
+        description="Directory of university research initiatives and workspace repositories."
         action={
           !isStudent && (
-            <Button icon={Plus} onClick={() => setIsCreateOpen(true)}>
-              New Project
+            <Button variant="primary" size="md" icon={Plus} onClick={() => setIsCreateOpen(true)}>
+              New project
             </Button>
           )
         }
       />
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-txt-faint" />
-          <Input
-            placeholder="Search projects..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      {/* Toolbar per Section 4.3: search input, status filter select, grid/table toggle */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1 max-w-md">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-3 stroke-[1.75]" />
+            <Input
+              placeholder="Search projects..."
+              className="pl-9 text-xs h-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          <div className="w-40 shrink-0">
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={statusOptions}
+              className="text-xs h-9"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          {['all', 'planning', 'active', 'on_hold', 'completed', 'published'].map((st) => (
-            <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors whitespace-nowrap ${
-                statusFilter === st
-                  ? 'bg-surface-3 text-accent border border-accent/30'
-                  : 'bg-surface text-txt-muted hover:text-txt border border-border'
-              }`}
-            >
-              {st.replace('_', ' ')}
-            </button>
-          ))}
+        {/* View Toggle */}
+        <div className="flex items-center gap-1 p-1 bg-surface-2 rounded-[8px] border border-border self-end sm:self-auto">
+          <button
+            onClick={() => setViewMode('table')}
+            className={`p-1.5 rounded-[6px] transition-colors ${
+              viewMode === 'table' ? 'bg-surface-3 text-text' : 'text-text-3 hover:text-text'
+            }`}
+            title="Table View"
+          >
+            <List className="w-4 h-4 stroke-[1.75]" />
+          </button>
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`p-1.5 rounded-[6px] transition-colors ${
+              viewMode === 'grid' ? 'bg-surface-3 text-text' : 'text-text-3 hover:text-text'
+            }`}
+            title="Grid View"
+          >
+            <LayoutGrid className="w-4 h-4 stroke-[1.75]" />
+          </button>
         </div>
       </div>
 
       {/* Content Section */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-36 w-full" />
-          <Skeleton className="h-36 w-full" />
-          <Skeleton className="h-36 w-full" />
-          <Skeleton className="h-36 w-full" />
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
       ) : error ? (
-        <Card className="p-8 border-danger/30 text-center">
+        <Card className="p-8 text-center">
           <p className="text-sm text-danger mb-4">{error}</p>
           <Button variant="secondary" onClick={fetchProjects}>
-            Retry Loading
+            Retry loading
           </Button>
         </Card>
       ) : filteredProjects.length === 0 ? (
-        <Card className="p-12">
-          <EmptyState
-            icon={FolderKanban}
-            title={searchQuery || statusFilter !== 'all' ? "No matching projects" : "No research projects found"}
-            description={
-              searchQuery || statusFilter !== 'all'
-                ? "Try clearing filters or search queries."
-                : isStudent
-                ? "You have not been assigned to any research projects."
-                : "Create your first project to start organizing experiments and data."
-            }
-            action={
-              !isStudent && !searchQuery && statusFilter === 'all' && (
-                <Button icon={Plus} onClick={() => setIsCreateOpen(true)}>
-                  Create Project
-                </Button>
-              )
-            }
-          />
+        <EmptyState
+          icon={FolderKanban}
+          title={searchQuery || statusFilter !== 'all' ? "No matching projects" : "No research projects found"}
+          description={
+            searchQuery || statusFilter !== 'all'
+              ? "Try adjusting your search queries or status filters."
+              : isStudent
+              ? "You haven't been assigned to any research projects yet."
+              : "Create your first project to start organizing experiments, datasets, and documents."
+          }
+          actionLabel={!isStudent && !searchQuery && statusFilter === 'all' ? "New project" : undefined}
+          onAction={!isStudent && !searchQuery && statusFilter === 'all' ? () => setIsCreateOpen(true) : undefined}
+        />
+      ) : viewMode === 'table' ? (
+        /* Table View per Section 4.3 (Default): Name, Status, Lead, Members, Dates, Updated */
+        <Card className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow hover={false}>
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Lead</TableHead>
+                <TableHead>Members</TableHead>
+                <TableHead>Dates</TableHead>
+                <TableHead>Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredProjects.map((project) => {
+                const updatedDate = project.updated_at
+                  ? new Date(project.updated_at).toLocaleDateString()
+                  : 'Recently';
+                const createdDate = project.created_at
+                  ? new Date(project.created_at).toLocaleDateString()
+                  : '—';
+                const membersList = [
+                  { name: user?.full_name || user?.name || 'User' },
+                  { name: 'Collaborator' },
+                ];
+
+                return (
+                  <TableRow
+                    key={project.id}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                  >
+                    <TableCell>
+                      <div className="font-medium text-text text-sm hover:underline">
+                        {project.title}
+                      </div>
+                      {project.description && (
+                        <div className="text-xs text-text-3 truncate max-w-sm mt-0.5">
+                          {project.description}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          project.status === 'active'
+                            ? 'success'
+                            : project.status === 'completed'
+                            ? 'info'
+                            : project.status === 'on_hold'
+                            ? 'warning'
+                            : 'neutral'
+                        }
+                        size="sm"
+                      >
+                        {project.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-text-2">
+                        {project.lead_name || 'Dr. Researcher'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <AvatarStack users={membersList} size="sm" max={3} />
+                    </TableCell>
+                    <TableCell mono>
+                      {createdDate}
+                    </TableCell>
+                    <TableCell mono>
+                      {updatedDate}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredProjects.map((project) => (
-            <Link key={project.id} to={`/projects/${project.id}`} className="block group">
-              <Card className="p-6 border-border hover:border-border-strong transition-all hover:bg-surface-2 h-full flex flex-col justify-between">
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <h3 className="text-base font-semibold text-txt group-hover:text-accent transition-colors line-clamp-1">
-                      {project.title}
-                    </h3>
-                    <Badge variant={project.status === 'active' ? 'success' : project.status === 'planning' ? 'accent' : 'secondary'}>
-                      {project.status}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-txt-muted line-clamp-2 mb-4 leading-relaxed">
-                    {project.description || 'No description provided for this research workspace.'}
-                  </p>
-                </div>
+        /* Grid View per Section 4.3: same card component with title, status badge, 2-line description, avatar stack */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredProjects.map((project) => {
+            const membersList = [
+              { name: user?.full_name || user?.name || 'User' },
+              { name: 'Collaborator' },
+            ];
 
-                <div className="pt-4 border-t border-border/50 flex items-center justify-between text-xs text-txt-muted">
-                  <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-txt-faint" />
-                      <span className="font-mono">{project.member_count || 1}</span>
+            return (
+              <Link key={project.id} to={`/projects/${project.id}`} className="block">
+                <Card className="p-5 flex flex-col justify-between h-44 hover:border-border-strong transition-colors">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-text line-clamp-1 hover:underline">
+                        {project.title}
+                      </h3>
+                      <Badge
+                        variant={
+                          project.status === 'active'
+                            ? 'success'
+                            : project.status === 'completed'
+                            ? 'info'
+                            : project.status === 'on_hold'
+                            ? 'warning'
+                            : 'neutral'
+                        }
+                        size="sm"
+                      >
+                        {project.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-text-2 line-clamp-2 leading-relaxed">
+                      {project.description || 'No description provided for this research workspace.'}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-border flex items-center justify-between text-xs text-text-3">
+                    <AvatarStack users={membersList} size="sm" max={3} />
+                    <span className="font-mono text-[11px] text-text-3">
+                      {project.member_count || 1} {project.member_count === 1 ? 'member' : 'members'}
                     </span>
-                    {project.start_date && (
-                      <span className="flex items-center gap-1.5 font-mono text-[11px] text-txt-faint">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {new Date(project.start_date).toLocaleDateString()}
-                      </span>
-                    )}
                   </div>
-
-                  {project.project_role && (
-                    <Badge variant="outline" className="uppercase text-[10px]">
-                      {project.project_role}
-                    </Badge>
-                  )}
-                </div>
-              </Card>
-            </Link>
-          ))}
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
 

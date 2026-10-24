@@ -25,7 +25,7 @@ export const Tooltip = ({ children, content, position = 'top', className }) => {
       {isVisible && (
         <div
           className={clsx(
-            'absolute z-50 whitespace-nowrap rounded bg-surface-3 border border-border-strong px-2.5 py-1 text-[11px] font-medium text-txt shadow-lg pointer-events-none animate-in fade-in duration-150',
+            'absolute z-dropdown whitespace-nowrap rounded-[8px] bg-surface-1 border border-border-strong px-2.5 py-1 text-[11px] font-medium text-text shadow-floating pointer-events-none animate-in fade-in duration-150',
             positions[position],
             className
           )}

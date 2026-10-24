@@ -160,28 +160,27 @@ export const LabSessionView = ({
   const isAiml = session?.profile_category === 'ai_ml';
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] min-h-[460px] w-full min-w-0 bg-bg border border-border rounded-xl overflow-hidden shadow-2xl">
-      {/* Slim Top Toolbar (Section 8.1 & 3.7) */}
-      <div className="min-h-14 py-2 px-4 bg-surface border-b border-border flex flex-wrap items-center justify-between gap-3 flex-shrink-0 z-10">
+    <div className="flex flex-col h-[calc(100vh-140px)] min-h-[460px] w-full min-w-0 bg-bg border border-border rounded-[12px] overflow-hidden shadow-floating">
+      {/* Slim Solid Top Toolbar per Section 4.5 */}
+      <div className="min-h-14 py-2 px-4 bg-surface-1 border-b border-border flex flex-wrap items-center justify-between gap-3 flex-shrink-0 z-10">
         {/* Left: Back & Session Title */}
         <div className="flex items-center gap-3 min-w-0">
           {onBack && (
             <button
               onClick={onBack}
-              className="p-1.5 rounded-lg text-txt-muted hover:text-txt hover:bg-surface-2 transition-colors flex-shrink-0"
+              className="p-1.5 rounded-[6px] text-text-3 hover:text-text hover:bg-surface-2 transition-colors flex-shrink-0"
               title="Back to Sessions"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4 stroke-[1.75]" />
             </button>
           )}
 
           <div className="flex items-center gap-2.5 truncate">
-            <span className="font-semibold text-sm text-txt truncate">{session.name}</span>
+            <span className="font-semibold text-sm text-text truncate">{session.name}</span>
             <Badge
-              variant={isAiml ? 'accent' : 'secondary'}
-              className="text-[10px] font-mono uppercase px-2 py-0.5 flex items-center gap-1 flex-shrink-0"
+              variant={isAiml ? 'aiml' : 'neutral'}
+              size="sm"
             >
-              {isAiml ? <Sparkles className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
               {session.profile_name || session.profile_key}
             </Badge>
           </div>
@@ -200,13 +199,13 @@ export const LabSessionView = ({
               }
               pulse={['running', 'provisioning', 'pausing', 'resuming'].includes(session.state)}
             />
-            <span className="text-[11px] font-medium uppercase tracking-wider text-txt">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-text">
               {session.state}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded bg-surface-2 border border-border text-xs font-mono text-txt">
-            <Clock className="w-3.5 h-3.5 text-txt-muted" />
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-[6px] bg-surface-2 border border-border text-xs font-mono tabular-nums text-text">
+            <Clock className="w-3.5 h-3.5 text-text-3 stroke-[1.75]" />
             <span>{formatTimer(elapsedSeconds)}</span>
           </div>
         </div>
@@ -305,51 +304,51 @@ export const LabSessionView = ({
       </div>
 
       {/* Workspace Single-Tab Switcher Bar */}
-      <div className="min-h-11 py-1.5 px-4 bg-surface-2 border-b border-border flex flex-wrap items-center justify-between gap-3 flex-shrink-0 text-xs">
-        <div className="flex items-center gap-1.5 bg-surface p-1 rounded-lg border border-border shadow-sm">
+      <div className="min-h-11 py-1.5 px-4 bg-panel-2 border-b border-line flex flex-wrap items-center justify-between gap-3 flex-shrink-0 text-xs">
+        <div className="flex items-center gap-1.5 bg-panel p-1 rounded-xl border border-line shadow-sm">
           <button
             onClick={() => setViewMode('notebook')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md font-medium transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-[6px] font-medium transition-colors ${
               viewMode === 'notebook'
-                ? 'bg-accent text-white shadow-sm'
-                : 'text-txt-muted hover:text-txt hover:bg-surface-2'
+                ? 'bg-surface-3 text-text shadow-sm'
+                : 'text-text-3 hover:text-text hover:bg-surface-2'
             }`}
             title="Interactive Python Testing Lab with NumPy & Matplotlib Charts"
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>⚡ Interactive Lab</span>
+            <span>Interactive Lab</span>
           </button>
 
           <button
             onClick={() => setViewMode('notion')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md font-medium transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-[6px] font-medium transition-colors ${
               viewMode === 'notion'
-                ? 'bg-accent text-white shadow-sm'
-                : 'text-txt-muted hover:text-txt hover:bg-surface-2'
+                ? 'bg-surface-3 text-text shadow-sm'
+                : 'text-text-3 hover:text-text hover:bg-surface-2'
             }`}
             title="Notion-style Research Notes & Lab Journal with LaTeX math"
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>📓 Research Notes</span>
+            <span>Research Notes</span>
           </button>
 
           {session.url && session.state === 'running' && (
             <button
               onClick={() => setViewMode('docker')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md font-medium transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-[6px] font-medium transition-colors ${
                 viewMode === 'docker'
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'text-txt-muted hover:text-txt hover:bg-surface-2'
+                  ? 'bg-surface-3 text-text shadow-sm'
+                  : 'text-text-3 hover:text-text hover:bg-surface-2'
               }`}
               title="Embedded Docker/Local JupyterLab Server"
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>🌐 Docker JupyterLab</span>
+              <span>Docker JupyterLab</span>
             </button>
           )}
         </div>
 
-        <div className="text-[11px] text-txt-muted font-mono hidden md:flex items-center gap-2">
+        <div className="text-[11px] text-text-3 font-mono hidden md:flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span>Full-Width Testing Workspace Active</span>
         </div>

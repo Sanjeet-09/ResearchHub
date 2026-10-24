@@ -1,133 +1,121 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  /* Neutrals — cool blue-slate, layered by lightness */
-  --bg: #0B0D12;
-  --surface: #11141B;
-  --surface-2: #171B24;
-  --surface-3: #1E2330;
-  --border: #232938;
-  --border-strong: #323A4D;
+  color-scheme: dark;
 
-  /* Text */
-  --text: #E8ECF4;
-  --text-muted: #A1A9BB;
-  --text-faint: #7A8499;
+  /* 1.1 Neutrals */
+  --bg: #0A0A0A;
+  --surface-1: #111111;
+  --surface-2: #171717;
+  --surface-3: #1F1F1F;
+  --border: #242424;
+  --border-strong: #353535;
+  --text: #EDEDED;
+  --text-2: #A1A1A1;
+  --text-3: #6E6E6E;
 
-  /* Accent — one restrained royal blue */
-  --accent: #3B6CF0;
-  /* primary buttons, selected states (white text = 4.6:1) */
-  --accent-hover: #2F5FE3;
-  --accent-pressed: #2A55CC;
-  --accent-text: #8FADFF;
-  /* links, active icons, focus ring on dark */
-  --accent-soft: rgba(59, 108, 240, 0.14);
-  --accent-ring: rgba(59, 108, 240, 0.45);
+  /* 1.2 Primary */
+  --primary: #EDEDED;
+  --primary-fg: #0A0A0A;
 
-  /* Semantic (approved, unchanged) */
-  --success: #3DD68C;
-  --warning: #F5B342;
-  --danger: #F2555A;
-  --info: #5BC0EB;
-  --success-soft: rgba(61, 214, 140, 0.12);
-  --warning-soft: rgba(245, 179, 66, 0.12);
-  --danger-soft: rgba(242, 85, 90, 0.12);
-  --info-soft: rgba(91, 192, 235, 0.12);
+  /* 1.3 Status colours (solid text on solid dark tint) */
+  --success: #4ADE80;
+  --success-bg: #0F2418;
+  --warning: #FBBF24;
+  --warning-bg: #2A2008;
+  --danger: #F87171;
+  --danger-bg: #2D1315;
+  --info: #60A5FA;
+  --info-bg: #0F1C30;
 
-  /* Surfaces & depth */
-  --highlight: rgba(255, 255, 255, 0.04);
-  /* 1px inner top edge on cards */
-  --glass: rgba(11, 13, 18, 0.72);
-  /* top bar, sticky table headers */
-  --shadow-pop: 0 16px 48px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border);
-  --glow-accent: 0 0 0 1px rgba(59, 108, 240, 0.5), 0 8px 32px -8px rgba(59, 108, 240, 0.45);
-
-  /* Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  /* Compatibility aliases */
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --focus: #EDEDED;
+  --foreground: var(--text);
+  --background: var(--bg);
+  --card: var(--surface-1);
+  --card-foreground: var(--text);
+  --popover: var(--surface-1);
+  --popover-foreground: var(--text);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-2);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --destructive-foreground: #FFFFFF;
+  --input: var(--surface-2);
+  --ring: var(--primary);
 }
 
+/* ui.md Section 6: Smooth scroll & thin scrollbars */
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
+  scroll-padding-top: 112px;
+  background-color: var(--bg);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #353535 transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
   background-color: var(--bg);
   color: var(--text);
-  font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  margin: 0;
   overflow-x: hidden;
 }
 
-h1,
-h2,
-h3 {
+h1, h2, h3 {
   letter-spacing: -0.02em;
   font-weight: 600;
 }
 
-code,
-kbd,
-samp,
-pre,
-.font-mono {
-  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+code, kbd, samp, pre, .font-mono {
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
 }
 
-/* Numbers that must not jitter: stats, timers, versions, sizes */
 .tabular {
   font-variant-numeric: tabular-nums;
 }
 
 ::selection {
-  background: var(--accent-soft);
+  background: var(--surface-3);
   color: var(--text);
 }
 
-/* Focus ring */
-*:focus-visible {
-  outline: 2px solid var(--accent-text);
+/* Global focus ring per Section 1.2 */
+:focus-visible {
+  outline: 2px solid #EDEDED;
   outline-offset: 2px;
 }
 
-/* Inputs: calm default, clear focus */
-.field {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  height: 36px;
-  padding: 0 12px;
-  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
-}
-
-.field::placeholder {
-  color: var(--text-faint);
-}
-
-.field:hover {
-  border-color: var(--border-strong);
-}
-
-.field:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
-}
-
-/* Dark scrollbars */
+/* Webkit scrollbar fallback */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -135,90 +123,49 @@ pre,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: #353535;
   border-radius: 4px;
-  border: 2px solid var(--bg);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
+  background: #4A4A4A;
 }
 
-/* Cards: border for separation, a hairline highlight for depth, no drop shadow */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 1px 0 var(--highlight);
+/* Card highlight per Section 1.4 */
+.card-highlight, .card-top-highlight {
+  box-shadow: inset 0 1px 0 #1A1A1A;
 }
 
-.card-interactive {
-  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+/* Floating shadow per Section 1.4 */
+.floating-shadow {
+  box-shadow: 0 12px 32px #000000;
 }
 
-.card-interactive:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-2);
+/* Dot pattern per Section 4.2 */
+.dot-pattern {
+  background-image: radial-gradient(#2A2A2A 1px, transparent 1px);
+  background-size: 14px 14px;
 }
 
-/* Glass: top bar and sticky headers */
-.glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
-  border-bottom: 1px solid var(--border);
-}
-
-/* Primary button glow, only on hover */
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-  transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-  box-shadow: var(--glow-accent);
-}
-
-.btn-primary:active {
-  background: var(--accent-pressed);
-}
-
-/* Selected / AI-ML emphasis card */
-.card-selected {
-  border-color: var(--accent);
-  box-shadow: var(--glow-accent);
-  background: linear-gradient(180deg, var(--accent-soft), transparent 60%), var(--surface);
-}
-
-/* Page backgrounds: one faint blue glow at the top (login + dashboard header only) */
-.accent-top-gradient {
-  background: radial-gradient(60% 45% at 50% 0%, rgba(59, 108, 240, 0.10) 0%, transparent 70%);
-}
-
-/* Optional faint grid for the login page */
-.bg-grid {
-  background-image:
+/* Subtle blueprint grid with soft radial fade-out */
+.bg-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
     linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 48px 48px;
-  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 30%, transparent 75%);
-  mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 80% 50% at 50% 0%, #000 70%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 50% at 50% 0%, #000 70%, transparent 100%);
 }
 
-/* Animations */
+/* Allowed pulse animation for live presence/status dot */
 @keyframes pulse-soft {
-
-  0%,
-  100% {
+  0%, 100% {
     opacity: 1;
     transform: scale(1);
   }
-
   50% {
     opacity: 0.45;
-    transform: scale(0.94);
+    transform: scale(0.92);
   }
 }
 
@@ -226,59 +173,9 @@ pre,
   animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.animate-shimmer {
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 2.2s infinite ease-in-out;
-}
-
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-up {
-  animation: fade-up 180ms ease-out both;
-}
-
-@keyframes dialog-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.985);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.animate-dialog-in {
-  animation: dialog-in 180ms ease-out both;
-}
-
+/* Reduced motion per Section 7 */
 @media (prefers-reduced-motion: reduce) {
-
-  *,
-  ::before,
-  ::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

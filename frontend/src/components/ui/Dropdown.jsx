@@ -22,7 +22,7 @@ export const Dropdown = ({ trigger, items = [], align = 'right', className }) =>
       {isOpen && (
         <div
           className={clsx(
-            'absolute z-40 mt-1.5 w-48 rounded-input bg-surface-2 border border-border shadow-xl py-1 focus:outline-none animate-in fade-in slide-in-from-top-1 duration-150',
+            'absolute z-dropdown mt-1.5 w-48 rounded-[8px] bg-surface-1 border border-border-strong shadow-floating py-1 focus:outline-none animate-in fade-in slide-in-from-top-1 duration-150',
             align === 'right' ? 'right-0' : 'left-0',
             className
           )}
@@ -40,12 +40,12 @@ export const Dropdown = ({ trigger, items = [], align = 'right', className }) =>
                 }}
                 disabled={item.disabled}
                 className={clsx(
-                  'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-left transition-colors duration-150',
-                  item.danger ? 'text-danger hover:bg-danger/10' : 'text-txt hover:bg-surface-3 hover:text-accent',
+                  'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-medium text-left transition-colors duration-150',
+                  item.danger ? 'text-danger hover:bg-danger-bg' : 'text-text hover:bg-surface-2',
                   item.disabled && 'opacity-50 cursor-not-allowed'
                 )}
               >
-                {item.icon && <item.icon className="w-4 h-4 shrink-0" />}
+                {item.icon && <item.icon className="w-4 h-4 shrink-0 stroke-[1.75]" />}
                 <span>{item.label}</span>
               </button>
             );

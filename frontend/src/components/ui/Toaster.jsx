@@ -8,11 +8,12 @@ export const Toaster = () => {
       position="bottom-right"
       toastOptions={{
         style: {
-          background: 'var(--surface-2)',
+          background: 'var(--surface-1)',
           border: '1px solid var(--border-strong)',
           color: 'var(--text)',
-          borderRadius: '8px',
+          borderRadius: '12px',
           fontSize: '13px',
+          boxShadow: '0 12px 32px #000000',
         },
       }}
     />

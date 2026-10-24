@@ -17,32 +17,30 @@ export const TimelineItem = ({
   children,
   badge,
   action,
+  isCurrent = false,
   className,
 }) => {
   return (
     <div className={clsx('relative group', className)}>
-      {/* Node indicator on vertical bar */}
-      <div className="absolute -left-[31px] top-1 w-3.5 h-3.5 rounded-full border border-border bg-surface-2 group-hover:border-accent group-hover:bg-accent-soft transition-colors flex items-center justify-center">
-        {Icon ? (
-          <Icon className="w-2 h-2 text-txt-muted group-hover:text-accent" />
-        ) : (
-          <div className="w-1.5 h-1.5 rounded-full bg-txt-muted group-hover:bg-accent" />
-        )}
-      </div>
+      {/* 10px Node indicator on vertical bar */}
+      <div className={clsx(
+        'absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border transition-colors flex items-center justify-center',
+        isCurrent ? 'bg-text border-text' : 'bg-surface-1 border-border-strong group-hover:border-text'
+      )} />
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             {badge}
-            <span className="text-sm font-semibold text-txt">{title}</span>
+            <span className="text-sm font-semibold text-text">{title}</span>
           </div>
           <div className="flex items-center gap-3">
-            {time && <span className="text-xs font-mono text-txt-faint">{time}</span>}
+            {time && <span className="text-xs font-mono text-text-3 tabular-nums">{time}</span>}
             {action}
           </div>
         </div>
-        {subtitle && <p className="text-xs text-txt-muted">{subtitle}</p>}
-        {children && <div className="mt-2 text-xs text-txt leading-relaxed">{children}</div>}
+        {subtitle && <p className="text-xs text-text-2">{subtitle}</p>}
+        {children && <div className="mt-2 text-xs text-text leading-relaxed">{children}</div>}
       </div>
     </div>
   );

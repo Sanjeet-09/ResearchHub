@@ -1,7 +1,7 @@
 import React from 'react';
-import { clsx } from 'clsx';
 import { FolderOpen } from 'lucide-react';
 import { Button } from './Button';
+import { cn } from '@/lib/utils';
 
 export const EmptyState = ({
   icon: Icon = FolderOpen,
@@ -12,15 +12,15 @@ export const EmptyState = ({
   className,
 }) => {
   return (
-    <div className={clsx('flex flex-col items-center justify-center text-center p-8 border border-dashed border-border rounded-card bg-surface/40 my-4', className)}>
-      <div className="p-3 rounded-full bg-surface-2 text-txt-muted mb-3 border border-border">
-        <Icon className="w-6 h-6 stroke-[1.5]" />
+    <div className={cn('flex flex-col items-center justify-center text-center p-10 rounded-[12px] bg-surface-1 border border-border my-4 shadow-[inset_0_1px_0_#1A1A1A]', className)}>
+      <div className="w-14 h-14 rounded-full bg-surface-2 text-text-3 flex items-center justify-center mb-4 border border-border">
+        <Icon className="w-8 h-8 stroke-[1.75]" />
       </div>
-      <h3 className="text-sm font-semibold text-txt">{title}</h3>
-      <p className="text-xs text-txt-muted mt-1 max-w-sm">{description}</p>
+      <h3 className="text-sm font-semibold text-text">{title}</h3>
+      {description && <p className="text-xs text-text-2 mt-1 max-w-sm leading-relaxed">{description}</p>}
       {actionLabel && onAction && (
         <div className="mt-4">
-          <Button size="sm" onClick={onAction}>
+          <Button variant="primary" size="sm" onClick={onAction}>
             {actionLabel}
           </Button>
         </div>

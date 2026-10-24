@@ -1,10 +1,9 @@
 import React from 'react';
-import { clsx } from 'clsx';
+import { cn } from '@/lib/utils';
 
 export const StatusDot = ({
   status = 'online', // 'running' | 'online' | 'completed' | 'idle' | 'paused' | 'pending' | 'failed' | 'stopped' | 'offline' | 'provisioning'
-  pulse = false,
-  size = 'md', // 'sm' | 'md' | 'lg'
+  pulse,
   className,
   label,
   ...props
@@ -12,6 +11,7 @@ export const StatusDot = ({
   const statusColors = {
     running: 'bg-success',
     online: 'bg-success',
+    active: 'bg-success',
     completed: 'bg-success',
     idle: 'bg-warning',
     paused: 'bg-warning',
@@ -19,38 +19,27 @@ export const StatusDot = ({
     failed: 'bg-danger',
     error: 'bg-danger',
     stop: 'bg-danger',
+    danger: 'bg-danger',
     provisioning: 'bg-info',
     info: 'bg-info',
-    stopped: 'bg-txt-faint',
-    offline: 'bg-txt-faint',
+    stopped: 'bg-text-3',
+    offline: 'bg-text-3',
   };
 
-  const isLiveState = pulse || ['running', 'online', 'provisioning'].includes(status);
-
-  const sizes = {
-    sm: 'w-1.5 h-1.5',
-    md: 'w-2 h-2',
-    lg: 'w-2.5 h-2.5',
-  };
+  const isLive = status === 'running' || status === 'online' || status === 'active';
+  const shouldPulse = pulse !== undefined ? pulse : isLive;
 
   return (
     <div className="inline-flex items-center gap-2 select-none" {...props}>
-      <span className="relative flex items-center justify-center">
-        {isLiveState && (
-          <span className={clsx(
-            'absolute inline-flex rounded-full opacity-75 animate-ping',
-            sizes[size],
-            statusColors[status] || 'bg-accent'
-          )} />
-        )}
-        <span className={clsx(
-          'relative inline-block rounded-full',
-          sizes[size],
-          statusColors[status] || 'bg-accent',
+      <span
+        className={cn(
+          'w-2 h-2 rounded-full shrink-0',
+          statusColors[status] || 'bg-text-3',
+          shouldPulse && 'animate-pulse-soft',
           className
-        )} />
-      </span>
-      {label && <span className="text-xs text-txt-muted capitalize">{label}</span>}
+        )}
+      />
+      {label && <span className="text-xs text-text-2 capitalize">{label}</span>}
     </div>
   );
 };

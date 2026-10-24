@@ -2,8 +2,36 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { projectApi, authApi } from '../services/api';
-import { PageHeader, Tabs, Card, CardHeader, CardTitle, CardContent, Badge, Button, Input, Select, Checkbox, Skeleton, Dialog, ConfirmDialog } from '../components/ui';
-import { CheckCircle2, Circle, Clock, Plus, Trash2, UserPlus, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
+import {
+  Tabs,
+  Card,
+  Badge,
+  Button,
+  Input,
+  Checkbox,
+  Skeleton,
+  Dialog,
+  ConfirmDialog,
+  Avatar,
+  AvatarStack,
+} from '../components/ui';
+import {
+  CheckCircle2,
+  Circle,
+  Clock,
+  Plus,
+  Trash2,
+  UserPlus,
+  ShieldAlert,
+  TestTube2,
+  Database,
+  FileText,
+  BookOpen,
+  CalendarClock,
+  Terminal,
+  Users,
+  FolderKanban,
+} from 'lucide-react';
 import { ExperimentsTab } from '../components/experiments/ExperimentsTab';
 import { DatasetsTab } from '../components/datasets/DatasetsTab';
 import { DocumentsTab } from '../components/documents/DocumentsTab';
@@ -67,7 +95,6 @@ export const ProjectDetailPage = () => {
     fetchProjectDetails();
   }, [id]);
 
-  // Load available users when add member modal opens
   const handleOpenAddMember = async () => {
     try {
       setIsAddMemberOpen(true);
@@ -210,20 +237,20 @@ export const ProjectDetailPage = () => {
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-32 w-full rounded-[12px]" />
+        <Skeleton className="h-10 w-80 rounded-[8px]" />
+        <Skeleton className="h-64 w-full rounded-[12px]" />
       </div>
     );
   }
 
   if (error || !project) {
     return (
-      <Card className="p-8 border-danger/30 text-center space-y-4">
-        <ShieldAlert className="w-10 h-10 text-danger mx-auto" />
+      <Card className="p-8 text-center space-y-4">
+        <ShieldAlert className="w-10 h-10 text-danger mx-auto stroke-[1.75]" />
         <div>
-          <h2 className="text-base font-semibold text-txt">Project Access Restricted</h2>
-          <p className="text-xs text-txt-muted mt-1">{error || 'Project not found or access denied.'}</p>
+          <h2 className="text-base font-semibold text-text">Project Access Restricted</h2>
+          <p className="text-xs text-text-2 mt-1">{error || 'Project not found or access denied.'}</p>
         </div>
         <Button variant="secondary" onClick={() => navigate('/projects')}>
           Back to Projects List
@@ -233,69 +260,117 @@ export const ProjectDetailPage = () => {
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'experiments', label: 'Experiments' },
-    { id: 'datasets', label: 'Datasets' },
-    { id: 'documents', label: 'Documents' },
-    { id: 'publications', label: 'Publications' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'lab', label: 'Testing Environment' },
-    { id: 'activity', label: 'Team Activity' },
+    { id: 'overview', label: 'Overview', icon: FolderKanban },
+    { id: 'experiments', label: 'Experiments', icon: TestTube2, badge: project.experiments_count },
+    { id: 'datasets', label: 'Datasets', icon: Database, badge: project.datasets_count },
+    { id: 'documents', label: 'Documents', icon: FileText },
+    { id: 'publications', label: 'Publications', icon: BookOpen },
+    { id: 'timeline', label: 'Timeline', icon: CalendarClock },
+    { id: 'lab', label: 'Testing Environment', icon: Terminal },
+    { id: 'activity', label: 'Team Activity', icon: Users },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title={project.title}
-        description={project.description || 'No project description.'}
-        action={
-          <div className="flex items-center gap-3">
-            <Badge variant={project.status === 'active' ? 'success' : project.status === 'planning' ? 'accent' : 'secondary'} className="uppercase px-3 py-1">
-              {project.status}
-            </Badge>
+    <div className="space-y-6 select-none">
+      {/* 1. Header Block per Section 4.4: Title, status badge, avatar stack, actions */}
+      <Card className="p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-3 max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-mono text-text-3 px-2 py-0.5 rounded bg-surface-2 border border-border">
+                {project.id?.slice(0, 8)}
+              </span>
+              <Badge
+                variant={
+                  project.status === 'active'
+                    ? 'success'
+                    : project.status === 'completed'
+                    ? 'info'
+                    : project.status === 'on_hold'
+                    ? 'warning'
+                    : 'neutral'
+                }
+              >
+                {project.status}
+              </Badge>
+              {project.allow_student_gpu && (
+                <Badge variant="aiml" size="sm">
+                  GPU Enabled
+                </Badge>
+              )}
+            </div>
+            
+            <h1 className="text-2xl font-semibold tracking-tight text-text">
+              {project.title}
+            </h1>
+            
+            <p className="text-xs sm:text-sm text-text-2 leading-relaxed">
+              {project.description || 'No project description provided.'}
+            </p>
 
+            {/* Avatar stack in header */}
+            <div className="flex items-center gap-3 pt-1">
+              <AvatarStack
+                users={project.members?.map(m => ({
+                  name: m.full_name || m.name || m.email,
+                  id: m.user_id,
+                })) || []}
+                size="sm"
+                max={5}
+              />
+              <span className="text-xs text-text-3 font-mono">
+                {project.members?.length || 1} {project.members?.length === 1 ? 'member' : 'members'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 shrink-0 self-start md:self-center">
             {isLead && (
               <Button variant="danger" size="sm" icon={Trash2} onClick={() => setIsDeleteConfirmOpen(true)}>
-                Delete Project
+                Delete project
               </Button>
             )}
           </div>
-        }
-      />
+        </div>
+      </Card>
 
-      {/* Underline Tabs Layout (Section 3.3) */}
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={handleTabChange} />
+      {/* 2. Underline Tabs per Section 4.4 & 3.2: sticky at top: 76px with solid --bg */}
+      <div className="sticky top-[76px] z-10 bg-bg pt-2 pb-0">
+        <Tabs tabs={tabs} activeTab={activeTab} onChange={handleTabChange} variant="underline" />
+      </div>
 
-      {/* Overview Tab Content */}
+      {/* 3. Overview Tab Content */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Status & Settings Card */}
-            <Card className="p-6 space-y-4">
-              <h3 className="text-sm font-semibold text-txt uppercase tracking-wider">Project Control & Settings</h3>
+            {/* Control & Settings Card */}
+            <Card className="p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-text">Project control & settings</h3>
+              </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-                <div className="space-y-1">
-                  <span className="text-xs text-txt-muted block font-medium">Project Lifecycle Status</span>
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                <div className="space-y-2">
+                  <span className="text-xs text-text-3 block font-medium">Status</span>
                   {isLead ? (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {['planning', 'active', 'on_hold', 'completed', 'published'].map((st) => (
                         <button
                           key={st}
                           onClick={() => handleStatusChange(st)}
-                          className={`px-2.5 py-1 rounded text-xs capitalize transition-colors ${project.status === st
-                              ? 'bg-accent text-white font-semibold'
-                              : 'bg-surface-2 text-txt-muted hover:text-txt border border-border'
-                            }`}
+                          className={`px-3 py-1 rounded-[6px] text-xs capitalize transition-colors ${
+                            project.status === st
+                              ? 'bg-primary text-primary-fg font-medium'
+                              : 'bg-surface-2 text-text-2 hover:text-text border border-border'
+                          }`}
                         >
                           {st.replace('_', ' ')}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-xs font-mono text-txt capitalize">{project.status}</span>
+                    <span className="text-xs font-mono text-text capitalize">{project.status}</span>
                   )}
                 </div>
 
@@ -312,52 +387,52 @@ export const ProjectDetailPage = () => {
             </Card>
 
             {/* Milestones Card */}
-            <Card className="p-6 space-y-4">
+            <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-txt uppercase tracking-wider">Milestones</h3>
+                <h3 className="text-sm font-semibold text-text">Milestones</h3>
                 {isMember && (
                   <Button variant="secondary" size="sm" icon={Plus} onClick={() => setIsAddMilestoneOpen(true)}>
-                    Add Milestone
+                    Add milestone
                   </Button>
                 )}
               </div>
 
               {project.milestones.length === 0 ? (
-                <p className="text-xs text-txt-muted py-4 text-center">No milestones created yet.</p>
+                <p className="text-xs text-text-3 py-6 text-center">No milestones created yet.</p>
               ) : (
                 <div className="space-y-2">
                   {project.milestones.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-surface-2 border border-border/60">
+                    <div key={m.id} className="flex items-center justify-between p-3 rounded-[8px] bg-surface-2 border border-border">
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => isMember && handleToggleMilestone(m)}
                           disabled={!isMember}
-                          className="text-accent hover:opacity-80 transition-opacity"
+                          className="hover:opacity-80 transition-opacity"
                         >
                           {m.is_done ? (
-                            <CheckCircle2 className="w-5 h-5 text-success" />
+                            <CheckCircle2 className="w-4 h-4 text-success stroke-[2]" />
                           ) : (
-                            <Circle className="w-5 h-5 text-txt-faint" />
+                            <Circle className="w-4 h-4 text-text-3 stroke-[1.75]" />
                           )}
                         </button>
-                        <span className={`text-xs font-medium ${m.is_done ? 'line-through text-txt-muted' : 'text-txt'}`}>
+                        <span className={`text-xs font-medium ${m.is_done ? 'line-through text-text-3' : 'text-text'}`}>
                           {m.title}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-3">
                         {m.due_date && (
-                          <span className="text-[11px] font-mono text-txt-faint flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
+                          <span className="text-[11px] font-mono text-text-3 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 stroke-[1.75]" />
                             {new Date(m.due_date).toLocaleDateString()}
                           </span>
                         )}
                         {isLead && (
                           <button
                             onClick={() => handleDeleteMilestone(m.id)}
-                            className="text-txt-faint hover:text-danger p-1 transition-colors"
+                            className="text-text-3 hover:text-danger p-1 transition-colors"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5 stroke-[1.75]" />
                           </button>
                         )}
                       </div>
@@ -368,37 +443,40 @@ export const ProjectDetailPage = () => {
             </Card>
           </div>
 
-          {/* Sidebar Column: Members Management */}
+          {/* Sidebar Column: Team Members */}
           <div className="space-y-6">
-            <Card className="p-6 space-y-4">
+            <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-txt uppercase tracking-wider">Team Members</h3>
+                <h3 className="text-sm font-semibold text-text">Team members</h3>
                 {isLead && (
                   <Button variant="secondary" size="sm" icon={UserPlus} onClick={handleOpenAddMember}>
-                    Add Member
+                    Add member
                   </Button>
                 )}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {project.members.map((member) => (
-                  <div key={member.user_id} className="flex items-center justify-between p-3 rounded-lg bg-surface-2 border border-border/40">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-txt">{member.full_name || 'Member'}</span>
-                        <Badge variant={member.project_role === 'lead' ? 'accent' : 'secondary'} className="uppercase text-[9px] px-1.5 py-0">
-                          {member.project_role}
-                        </Badge>
+                  <div key={member.user_id} className="flex items-center justify-between p-2.5 rounded-[8px] bg-surface-2 border border-border">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Avatar name={member.full_name || member.email} size="sm" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-text truncate">{member.full_name || 'Member'}</span>
+                          <Badge variant="neutral" size="sm">
+                            {member.project_role}
+                          </Badge>
+                        </div>
+                        <span className="text-[11px] text-text-3 block truncate">{member.email}</span>
                       </div>
-                      <span className="text-[11px] text-txt-muted block">{member.email}</span>
                     </div>
 
                     {isLead && member.user_id !== project.owner_id && (
                       <button
                         onClick={() => handleRemoveMember(member.user_id)}
-                        className="text-txt-faint hover:text-danger p-1 transition-colors"
+                        className="text-text-3 hover:text-danger p-1 transition-colors shrink-0"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 stroke-[1.75]" />
                       </button>
                     )}
                   </div>
@@ -409,81 +487,68 @@ export const ProjectDetailPage = () => {
         </div>
       )}
 
-      {/* Experiments Tab */}
+      {/* Other Tabs */}
       {activeTab === 'experiments' && (
         <ExperimentsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
-      {/* Datasets Tab */}
       {activeTab === 'datasets' && (
         <DatasetsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
-      {/* Documents Tab */}
       {activeTab === 'documents' && (
         <DocumentsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
-      {/* Publications Tab */}
       {activeTab === 'publications' && (
         <PublicationsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
-      {/* Timeline Tab */}
       {activeTab === 'timeline' && (
         <TimelineTab projectId={id} />
       )}
 
-      {/* Testing Environment Tab */}
       {activeTab === 'lab' && (
         <LabTab projectId={id} isMember={isMember} allowStudentGpu={project.allow_student_gpu} />
       )}
 
-      {/* Team Activity Tab */}
       {activeTab === 'activity' && (
         <TeamActivityTab projectId={id} isMember={isMember} />
-      )}
-
-      {/* Other Tab Placeholders */}
-      {!['overview', 'experiments', 'datasets', 'documents', 'publications', 'timeline', 'lab', 'activity'].includes(activeTab) && (
-        <Card className="p-12 text-center text-txt-muted text-xs">
-          The <span className="text-accent font-semibold capitalize">{activeTab}</span> tab for {project.title} will be integrated in subsequent phases.
-        </Card>
       )}
 
       {/* Add Member Modal */}
       <Dialog isOpen={isAddMemberOpen} onClose={() => setIsAddMemberOpen(false)} title="Add Team Member">
         <form onSubmit={handleAddMemberSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-txt mb-1">Select User</label>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-text-2">Select User</label>
             <select
-              className="w-full bg-surface-2 border border-border rounded-input px-3 py-2 text-xs text-txt focus:outline-none focus:border-accent"
+              className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-xs text-text focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED]"
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
             >
               {allUsers.map((u) => (
-                <option key={u.id} value={u.id}>
+                <option key={u.id} value={u.id} className="bg-surface-2 text-text">
                   {u.full_name} ({u.email}) — {u.role}
                 </option>
               ))}
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-txt mb-1">Project Role</label>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-text-2">Project Role</label>
             <select
-              className="w-full bg-surface-2 border border-border rounded-input px-3 py-2 text-xs text-txt focus:outline-none focus:border-accent"
+              className="w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-xs text-text focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED]"
               value={selectedMemberRole}
               onChange={(e) => setSelectedMemberRole(e.target.value)}
             >
-              <option value="member">Member (Can edit experiments & datasets)</option>
-              <option value="lead">Lead (Full project admin permissions)</option>
-              <option value="viewer">Viewer (Read-only access)</option>
+              <option value="member" className="bg-surface-2 text-text">Member (Can edit experiments & datasets)</option>
+              <option value="lead" className="bg-surface-2 text-text">Lead (Full project admin permissions)</option>
+              <option value="viewer" className="bg-surface-2 text-text">Viewer (Read-only access)</option>
             </select>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-border">
-            <Button type="button" variant="secondary" onClick={() => setIsAddMemberOpen(false)}>
+          <div className="flex justify-end gap-3 pt-3 border-t border-border">
+            <Button type="button" variant="ghost" onClick={() => setIsAddMemberOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={actionLoading}>
@@ -494,7 +559,7 @@ export const ProjectDetailPage = () => {
       </Dialog>
 
       {/* Add Milestone Modal */}
-      <Dialog isOpen={isAddMilestoneOpen} onClose={() => setIsAddMilestoneOpen(false)} title="Add Project Milestone">
+      <Dialog isOpen={isAddMilestoneOpen} onClose={() => setIsAddMilestoneOpen(false)} title="Add Milestone">
         <form onSubmit={handleAddMilestoneSubmit} className="space-y-4">
           <Input
             label="Milestone Title"
@@ -511,8 +576,8 @@ export const ProjectDetailPage = () => {
             onChange={(e) => setMilestoneDueDate(e.target.value)}
           />
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-border">
-            <Button type="button" variant="secondary" onClick={() => setIsAddMilestoneOpen(false)}>
+          <div className="flex justify-end gap-3 pt-3 border-t border-border">
+            <Button type="button" variant="ghost" onClick={() => setIsAddMilestoneOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={actionLoading}>
@@ -528,9 +593,11 @@ export const ProjectDetailPage = () => {
         onClose={() => setIsDeleteConfirmOpen(false)}
         onConfirm={handleDeleteProject}
         title="Delete Project"
-        message={`Are you sure you want to permanently delete "${project.title}"? All associated metadata will be removed.`}
+        description={`Are you sure you want to permanently delete "${project.title}"? All associated metadata will be removed.`}
         confirmText="Delete Project"
-        requiredText={project.title}
+        confirmName={project.title}
+        variant="danger"
+        isLoading={actionLoading}
       />
     </div>
   );

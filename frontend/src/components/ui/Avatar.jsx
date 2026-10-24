@@ -1,5 +1,6 @@
 import React from 'react';
-import { clsx } from 'clsx';
+import * as RadixAvatar from '@radix-ui/react-avatar';
+import { cn } from '@/lib/utils';
 
 function getInitials(name = '') {
   if (!name) return 'U';
@@ -8,54 +9,63 @@ function getInitials(name = '') {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function getDeterministicColor(name = '') {
-  const colors = [
-    'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
-    'bg-purple-500/20 text-purple-300 border-purple-500/40',
-    'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-    'bg-amber-500/20 text-amber-300 border-amber-500/40',
-    'bg-rose-500/20 text-rose-300 border-rose-500/40',
-    'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % colors.length;
-  return colors[index];
-}
-
 export const Avatar = ({
   name = 'User',
   src,
-  size = 'md', // 'sm' | 'md' | 'lg'
+  size = 'md', // 'sm' | 'md' | 'lg' | 'xl'
   className,
   ...props
 }) => {
   const initials = getInitials(name);
-  const colorClass = getDeterministicColor(name);
 
   const sizes = {
-    sm: 'w-7 h-7 text-xs',
-    md: 'w-9 h-9 text-sm',
-    lg: 'w-11 h-11 text-base font-semibold',
+    sm: 'w-6 h-6 text-[10px]',
+    md: 'w-8 h-8 text-xs',
+    lg: 'w-10 h-10 text-sm font-medium',
+    xl: 'w-12 h-12 text-base font-medium',
   };
 
   return (
-    <div
-      className={clsx(
-        'rounded-full border flex items-center justify-center font-medium select-none shrink-0 overflow-hidden',
+    <RadixAvatar.Root
+      className={cn(
+        'relative inline-flex items-center justify-center rounded-full select-none shrink-0 overflow-hidden border border-border bg-surface-3 text-text',
         sizes[size],
-        !src && colorClass,
         className
       )}
-      title={name}
       {...props}
     >
-      {src ? (
-        <img src={src} alt={name} className="w-full h-full object-cover" />
-      ) : (
-        <span>{initials}</span>
+      {src && (
+        <RadixAvatar.Image
+          src={src}
+          alt={name}
+          className="h-full w-full object-cover"
+        />
+      )}
+      <RadixAvatar.Fallback
+        className="flex h-full w-full items-center justify-center font-medium uppercase"
+        delayMs={100}
+      >
+        {initials}
+      </RadixAvatar.Fallback>
+    </RadixAvatar.Root>
+  );
+};
+
+export const AvatarStack = ({ users = [], max = 4, size = 'sm', className }) => {
+  const visible = users.slice(0, max);
+  const remaining = users.length - max;
+
+  return (
+    <div className={cn('flex items-center', className)}>
+      {visible.map((u, i) => (
+        <div key={u.id || u.name || i} className={cn(i > 0 && '-ml-2', 'ring-2 ring-bg rounded-full')}>
+          <Avatar name={u.name || u.full_name || u.email} src={u.avatar_url} size={size} />
+        </div>
+      ))}
+      {remaining > 0 && (
+        <div className={cn('-ml-2 ring-2 ring-bg rounded-full flex items-center justify-center bg-surface-2 border border-border text-text-2 font-mono text-[10px] w-6 h-6')}>
+          +{remaining}
+        </div>
       )}
     </div>
   );

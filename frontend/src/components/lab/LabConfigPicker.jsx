@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Button, Input, Skeleton } from '../ui';
 import { labApi } from '../../services/api';
-import { Sparkles, Cpu, HardDrive, Zap, Clock, DollarSign, Check, AlertCircle } from 'lucide-react';
+import { Cpu, HardDrive, Zap, Clock, DollarSign, Check, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export const LabConfigPicker = ({
   projectId,
@@ -27,7 +28,6 @@ export const LabConfigPicker = ({
       setError(null);
       const data = await labApi.getProfiles();
       setProfiles(data || []);
-      // Default to first active general profile
       const firstActive = (data || []).find((p) => p.is_active && p.category === 'general');
       if (firstActive) setSelectedKey(firstActive.key);
     } catch (err) {
@@ -70,22 +70,22 @@ export const LabConfigPicker = ({
   if (fetching) {
     return (
       <div className="space-y-6 p-6">
-        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-10 w-72 rounded-[8px]" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-48" />
-          <Skeleton className="h-48" />
-          <Skeleton className="h-48" />
+          <Skeleton className="h-48 rounded-[12px]" />
+          <Skeleton className="h-48 rounded-[12px]" />
+          <Skeleton className="h-48 rounded-[12px]" />
         </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8">
+    <form onSubmit={handleSubmit} className="space-y-8 select-none">
       {/* Session Name Field */}
-      <div className="space-y-2">
-        <label className="block text-xs font-semibold uppercase tracking-wider text-txt-muted">
-          Session Configuration & Name
+      <div className="space-y-1.5">
+        <label className="block text-xs font-medium text-text-2">
+          Session name
         </label>
         <Input
           value={sessionName}
@@ -97,14 +97,14 @@ export const LabConfigPicker = ({
           required
           autoFocus
         />
-        <p className="text-[11px] text-txt-faint">
-          Give your testing environment session a memorable name. You will be able to pause and resume this workspace.
+        <p className="text-[11px] text-text-3">
+          Give your testing environment session a memorable name. You can pause and resume this workspace anytime.
         </p>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-card bg-danger/10 border border-danger/20 text-xs text-danger">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+        <div className="flex items-center gap-2 p-3 rounded-[8px] bg-danger-bg border border-danger/30 text-xs text-danger">
+          <AlertCircle className="w-4 h-4 shrink-0 stroke-[1.75]" />
           <span>{error}</span>
         </div>
       )}
@@ -112,11 +112,11 @@ export const LabConfigPicker = ({
       {/* Group 1: General Purpose Configurations */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-txt uppercase tracking-wider flex items-center gap-1.5">
-            <Cpu className="w-3.5 h-3.5 text-accent" />
-            General Purpose Computing
+          <h3 className="text-xs font-semibold text-text flex items-center gap-1.5">
+            <Cpu className="w-4 h-4 text-text-3 stroke-[1.75]" />
+            General
           </h3>
-          <span className="text-[11px] text-txt-faint">CPU-based standard notebooks</span>
+          <span className="text-[11px] text-text-3">CPU-based standard container environments</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -129,50 +129,51 @@ export const LabConfigPicker = ({
               <div
                 key={p.key}
                 onClick={() => setSelectedKey(p.key)}
-                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between cursor-pointer ${
+                className={cn(
+                  'relative p-5 rounded-[12px] transition-colors flex flex-col justify-between cursor-pointer overflow-hidden shadow-[inset_0_1px_0_#1A1A1A]',
                   isSelected
-                    ? 'bg-surface-3 border-accent ring-1 ring-accent shadow-[0_0_24px_rgba(124,131,255,0.25)]'
-                    : 'bg-surface hover:bg-surface-2 border-border hover:border-accent/40 hover:shadow-[0_0_20px_rgba(124,131,255,0.12)]'
-                }`}
+                    ? 'bg-surface-1 border-2 border-text'
+                    : 'bg-surface-1 hover:bg-surface-2 border border-border hover:border-border-strong'
+                )}
                 title={disabledReason || ''}
               >
                 {isSelected && (
-                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-accent text-bg flex items-center justify-center shadow-sm">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <div className="absolute top-3.5 right-3.5 w-5 h-5 rounded-full bg-primary text-primary-fg flex items-center justify-center">
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                   </div>
                 )}
 
                 <div className="space-y-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-txt">{p.name}</span>
-                      <span className="text-[10px] font-mono text-txt-muted">{p.key}</span>
+                      <span className="text-sm font-semibold text-text">{p.name}</span>
+                      <span className="text-[10px] font-mono text-text-3">{p.key}</span>
                     </div>
-                    <p className="text-xs text-txt-muted mt-1 leading-relaxed line-clamp-2">
+                    <p className="text-xs text-text-2 mt-1 leading-relaxed line-clamp-2">
                       {p.description}
                     </p>
                   </div>
 
                   {/* Resource Chips in Mono */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-txt-muted flex items-center gap-1">
-                      <Cpu className="w-3 h-3 text-txt-faint" />
+                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
+                      <Cpu className="w-3 h-3 text-text-3 stroke-[1.75]" />
                       {p.cpu}
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-txt-muted flex items-center gap-1">
-                      <HardDrive className="w-3 h-3 text-txt-faint" />
+                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
+                      <HardDrive className="w-3 h-3 text-text-3 stroke-[1.75]" />
                       {p.memory_gb} GiB RAM
                     </span>
                   </div>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-border/60 flex items-center justify-between text-[11px] text-txt-faint">
+                <div className="pt-4 mt-4 border-t border-border flex items-center justify-between text-[11px] text-text-3">
                   <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
+                    <Clock className="w-3 h-3 stroke-[1.75]" />
                     Max {p.max_hours}h run
                   </span>
-                  <span className="font-mono text-txt-muted flex items-center">
-                    <DollarSign className="w-3 h-3" />
+                  <span className="font-mono text-text-2 flex items-center tabular">
+                    <DollarSign className="w-3 h-3 stroke-[1.75]" />
                     {Number(p.est_cost_per_hour).toFixed(2)}/h
                   </span>
                 </div>
@@ -185,11 +186,10 @@ export const LabConfigPicker = ({
       {/* Group 2: AI / ML Accelerated Configurations */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-txt uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-accent" />
-            AI / ML Accelerated Workloads
+          <h3 className="text-xs font-semibold text-text flex items-center gap-1.5">
+            AI / ML
           </h3>
-          <span className="text-[11px] text-txt-faint">NVIDIA GPU · PyTorch CUDA · HuggingFace</span>
+          <span className="text-[11px] text-text-3">NVIDIA GPU · PyTorch CUDA · HuggingFace</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -202,21 +202,21 @@ export const LabConfigPicker = ({
               <div
                 key={p.key}
                 onClick={() => setSelectedKey(p.key)}
-                className={`relative p-5 rounded-card border transition-all duration-200 flex flex-col justify-between cursor-pointer ${
+                className={cn(
+                  'relative p-5 rounded-[12px] transition-colors flex flex-col justify-between cursor-pointer overflow-hidden shadow-[inset_0_1px_0_#1A1A1A]',
                   isSelected
-                    ? 'bg-surface-3 border-accent ring-1 ring-accent shadow-[0_0_24px_rgba(124,131,255,0.25)]'
-                    : 'bg-surface hover:bg-surface-2 border-border hover:border-accent/40 hover:shadow-[0_0_20px_rgba(124,131,255,0.12)]'
-                }`}
+                    ? 'bg-surface-1 border-2 border-text'
+                    : 'bg-surface-1 hover:bg-surface-2 border border-border hover:border-border-strong'
+                )}
                 title={disabledReason || ''}
               >
-                <div className="absolute top-3 right-3 flex items-center gap-2">
-                  <Badge variant="accent" className="text-[10px] uppercase tracking-wider flex items-center gap-1 px-2 py-0.5">
-                    <Zap className="w-3 h-3" />
+                <div className="absolute top-3.5 right-3.5 flex items-center gap-2">
+                  <Badge variant="aiml" size="sm">
                     AI/ML
                   </Badge>
                   {isSelected && (
-                    <div className="w-5 h-5 rounded-full bg-accent text-bg flex items-center justify-center shadow-sm">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    <div className="w-5 h-5 rounded-full bg-primary text-primary-fg flex items-center justify-center">
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                     </div>
                   )}
                 </div>
@@ -224,9 +224,9 @@ export const LabConfigPicker = ({
                 <div className="space-y-3 pr-16">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-txt">{p.name}</span>
+                      <span className="text-sm font-semibold text-text">{p.name}</span>
                     </div>
-                    <p className="text-xs text-txt-muted mt-1 leading-relaxed">
+                    <p className="text-xs text-text-2 mt-1 leading-relaxed">
                       {p.description}
                     </p>
                   </div>
@@ -234,36 +234,36 @@ export const LabConfigPicker = ({
                   {/* Resource Chips in Mono */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {p.gpu_type && (
-                      <span className="px-2 py-0.5 rounded bg-accent-soft border border-accent/30 text-[11px] font-mono text-accent font-medium flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-accent" />
+                      <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text flex items-center gap-1">
+                        <Zap className="w-3 h-3 stroke-[1.75]" />
                         {p.gpu_type}
                       </span>
                     )}
-                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-txt-muted flex items-center gap-1">
-                      <Cpu className="w-3 h-3 text-txt-faint" />
+                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
+                      <Cpu className="w-3 h-3 text-text-3 stroke-[1.75]" />
                       {p.cpu}
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-txt-muted flex items-center gap-1">
-                      <HardDrive className="w-3 h-3 text-txt-faint" />
+                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
+                      <HardDrive className="w-3 h-3 text-text-3 stroke-[1.75]" />
                       {p.memory_gb} GiB RAM
                     </span>
                   </div>
 
                   {disabled && disabledReason && (
-                    <div className="p-2 rounded bg-surface-2/80 border border-border text-[11px] text-txt-faint flex items-center gap-1.5">
-                      <AlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0" />
+                    <div className="p-2 rounded bg-surface-2 border border-border text-[11px] text-text-3 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-warning shrink-0 stroke-[1.75]" />
                       <span>{disabledReason}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-border/60 flex items-center justify-between text-[11px] text-txt-faint">
+                <div className="pt-4 mt-4 border-t border-border flex items-center justify-between text-[11px] text-text-3">
                   <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
+                    <Clock className="w-3 h-3 stroke-[1.75]" />
                     Max {p.max_hours * 60}m run
                   </span>
-                  <span className="font-mono text-txt-muted flex items-center">
-                    <DollarSign className="w-3 h-3" />
+                  <span className="font-mono text-text-2 flex items-center tabular">
+                    <DollarSign className="w-3 h-3 stroke-[1.75]" />
                     {Number(p.est_cost_per_hour).toFixed(2)}/h
                   </span>
                 </div>
@@ -273,22 +273,18 @@ export const LabConfigPicker = ({
         </div>
       </div>
 
-      {/* Sticky Selection Summary & Launch Footer */}
-      <div className="sticky bottom-0 bg-surface/95 backdrop-blur-sm -mx-6 -mb-6 p-5 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 rounded-b-xl z-10">
+      {/* Sticky Selection Summary & Launch Footer per Section 4.5: solid --surface-1 bar */}
+      <div className="sticky bottom-0 bg-surface-1 border border-border-strong p-4 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-[12px] z-10 shadow-floating">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-surface-3 border border-border flex items-center justify-center">
-            {selectedProfile?.category === 'ai_ml' ? (
-              <Sparkles className="w-4 h-4 text-accent" />
-            ) : (
-              <Cpu className="w-4 h-4 text-txt-muted" />
-            )}
+          <div className="w-9 h-9 rounded-[8px] bg-surface-2 border border-border flex items-center justify-center">
+            <Cpu className="w-4 h-4 text-text stroke-[1.75]" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-txt flex items-center gap-2">
-              <span>{selectedProfile?.name || 'No Profile Selected'}</span>
-              <span className="font-mono text-[11px] text-txt-muted">({selectedProfile?.cpu} · {selectedProfile?.memory_gb} GiB)</span>
+            <div className="text-xs font-semibold text-text flex items-center gap-2">
+              <span>{selectedProfile?.name || 'No profile selected'}</span>
+              <span className="font-mono text-[11px] text-text-3">({selectedProfile?.cpu} · {selectedProfile?.memory_gb} GiB)</span>
             </div>
-            <div className="text-[11px] text-txt-faint">
+            <div className="text-[11px] text-text-2">
               Estimated: ~${Number(selectedProfile?.est_cost_per_hour || 0).toFixed(2)} / hr · Max duration {selectedProfile?.max_hours} hr
             </div>
           </div>
@@ -296,7 +292,7 @@ export const LabConfigPicker = ({
 
         <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
           {onCancel && (
-            <Button type="button" variant="secondary" onClick={onCancel} disabled={loading}>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={loading}>
               Cancel
             </Button>
           )}
@@ -304,10 +300,9 @@ export const LabConfigPicker = ({
             type="submit"
             variant="primary"
             disabled={!selectedProfile || loading}
-            loading={loading}
-            icon={Zap}
+            isLoading={loading}
           >
-            Launch Environment
+            Launch environment
           </Button>
         </div>
       </div>

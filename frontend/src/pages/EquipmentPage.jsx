@@ -207,7 +207,7 @@ const SearchableSelect = ({
 
       {/* Floating Filtered Options List */}
       {isOpen && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-surface-2 border border-border rounded-lg shadow-xl py-1 text-xs divide-y divide-border/40 backdrop-blur-md">
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-surface-1 border border-border-strong rounded-[8px] shadow-floating py-1 text-xs divide-y divide-border">
           {isLoading ? (
             <div className="p-3 text-center text-txt-muted flex items-center justify-center gap-2">
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-accent" />
@@ -247,8 +247,8 @@ const SearchableSelect = ({
                     opt.disabled
                       ? 'opacity-40 cursor-not-allowed bg-surface/20'
                       : isSelected
-                      ? 'bg-accent/15 text-txt font-semibold'
-                      : 'hover:bg-surface-3 text-txt'
+                      ? 'bg-surface-3 text-txt font-semibold'
+                      : 'hover:bg-surface-2 text-txt'
                   }`}
                 >
                   <div className="min-w-0 pr-2">
@@ -955,7 +955,7 @@ export const EquipmentPage = () => {
                 <span className="font-semibold text-txt font-mono">{formatWeekLabel()}</span>
                 <span className="text-txt-faint">•</span>
                 <span className="text-txt-muted">Selected Day:</span>
-                <span className="font-semibold text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">
+                <span className="font-semibold text-text font-mono bg-surface-3 px-2 py-0.5 rounded border border-border-strong">
                   {parseLocalDate(selectedCalendarDate).toLocaleDateString(undefined, {
                     weekday: 'short',
                     month: 'short',
@@ -1003,33 +1003,33 @@ export const EquipmentPage = () => {
                       key={idx}
                       type="button"
                       onClick={() => setSelectedCalendarDate(dayStr)}
-                      className={`p-2 rounded-lg text-center transition-all cursor-pointer group ${
+                      className={`p-2 rounded-[8px] text-center transition-colors cursor-pointer group ${
                         isSelected
-                          ? 'bg-accent/15 border border-accent/60 shadow-sm'
-                          : 'hover:bg-surface-3 border border-transparent'
+                          ? 'bg-surface-3 border border-border-strong shadow-sm'
+                          : 'hover:bg-surface-2 border border-transparent'
                       }`}
                       title={`Click to select ${dayStr}`}
                     >
                       <span
                         className={`text-[11px] uppercase tracking-wider font-semibold block transition-colors ${
-                          isSelected ? 'text-accent' : 'text-txt-muted group-hover:text-txt'
+                          isSelected ? 'text-text' : 'text-text-3 group-hover:text-text'
                         }`}
                       >
                         {day.toLocaleDateString(undefined, { weekday: 'short' })}
                       </span>
                       <div
-                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-mono font-bold mt-1 transition-all ${
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-mono font-bold mt-1 transition-colors ${
                           isSelected
-                            ? 'bg-accent text-white ring-2 ring-accent/40 ring-offset-1 ring-offset-surface-2'
+                            ? 'bg-primary text-primary-fg'
                             : isToday
-                            ? 'bg-surface-3 text-accent font-extrabold border border-accent/30'
-                            : 'text-txt group-hover:bg-surface-2'
+                            ? 'bg-surface-2 text-text font-bold border border-border-strong'
+                            : 'text-text group-hover:bg-surface-2'
                         }`}
                       >
                         {day.getDate()}
                       </div>
                       {isSelected && (
-                        <span className="text-[9px] text-accent font-semibold block mt-1 tracking-tight">
+                        <span className="text-[9px] text-text-2 font-medium block mt-1 tracking-tight">
                           Selected
                         </span>
                       )}
@@ -1067,10 +1067,10 @@ export const EquipmentPage = () => {
                       <div
                         key={colIdx}
                         onClick={() => setSelectedCalendarDate(dateString)}
-                        className={`border rounded-lg p-2 flex flex-col justify-between space-y-2 group transition-all cursor-pointer ${
+                        className={`border rounded-[8px] p-2 flex flex-col justify-between space-y-2 group transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-accent/[0.06] border-accent/70 ring-1 ring-accent/30 shadow-md'
-                            : 'bg-surface-2/40 border-border/50 hover:border-border'
+                            ? 'bg-surface-2 border-border-strong shadow-sm'
+                            : 'bg-surface-1 border-border hover:border-border-strong'
                         }`}
                       >
                         {/* Bookings for the day */}
@@ -1099,10 +1099,10 @@ export const EquipmentPage = () => {
                               return (
                                 <div
                                   key={res.id}
-                                  className={`p-2 rounded border text-xs space-y-1 transition-all ${
+                                  className={`p-2 rounded-[6px] border text-xs space-y-1 transition-colors ${
                                     isMyBooking
-                                      ? 'bg-accent/15 border-accent/40 text-txt shadow-sm'
-                                      : 'bg-surface-3 border-border/80 text-txt-muted'
+                                      ? 'bg-surface-3 border-border-strong text-text shadow-sm'
+                                      : 'bg-surface-2 border-border text-text-2'
                                   }`}
                                   title={`Booked by: ${res.user_name || 'Member'}`}
                                 >
@@ -1137,7 +1137,7 @@ export const EquipmentPage = () => {
                             size="sm"
                             className={`w-full text-[11px] py-1 border border-dashed transition-all ${
                               isSelected
-                                ? 'border-accent text-accent bg-accent/10 opacity-100 font-semibold'
+                                ? 'border-border-strong text-text bg-surface-3 opacity-100 font-semibold'
                                 : 'border-border/60 hover:border-accent text-txt-muted hover:text-accent opacity-70 group-hover:opacity-100'
                             }`}
                             onClick={(e) => {
@@ -1411,7 +1411,7 @@ export const EquipmentPage = () => {
                 onClick={() => setBookDate(formatLocalDate(new Date()))}
                 className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${
                   bookDate === formatLocalDate(new Date())
-                    ? 'bg-accent/20 border-accent text-accent font-semibold'
+                    ? 'bg-surface-3 border-border-strong text-text font-semibold'
                     : 'bg-surface-2 border-border text-txt-muted hover:text-txt'
                 }`}
               >

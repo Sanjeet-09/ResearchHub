@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
-import { Search, Folder, TestTube, Database, Compass, X } from 'lucide-react';
+import { Search, FolderKanban, FlaskConical, CalendarClock, Terminal, Compass, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const CommandPalette = ({ isOpen, onClose }) => {
@@ -12,8 +12,6 @@ export const CommandPalette = ({ isOpen, onClose }) => {
         e.preventDefault();
         if (isOpen) {
           onClose();
-        } else {
-          // Trigger open via custom handler if needed
         }
       }
     };
@@ -30,62 +28,62 @@ export const CommandPalette = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 p-4">
-      <div className="fixed inset-0 bg-bg/80 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-70 flex items-start justify-center pt-24 p-4">
+      <div className="fixed inset-0 bg-black/70" onClick={onClose} />
       
-      <div className="relative w-full max-w-xl bg-surface border border-border rounded-modal shadow-2xl overflow-hidden z-10 animate-in fade-in slide-in-from-top-2 duration-150">
+      <div className="relative w-full max-w-xl bg-surface-1 border border-border-strong rounded-[12px] shadow-floating overflow-hidden z-10 animate-in fade-in slide-in-from-top-2 duration-150">
         <Command className="w-full">
           <div className="flex items-center border-b border-border px-4">
-            <Search className="w-4 h-4 text-txt-muted shrink-0 mr-3" />
+            <Search className="w-4 h-4 text-text-3 shrink-0 mr-3 stroke-[1.75]" />
             <Command.Input
-              placeholder="Type a command or search projects, datasets, experiments..."
-              className="w-full bg-transparent py-3.5 text-sm text-txt placeholder:text-txt-faint outline-none"
+              placeholder="Search projects, experiments, datasets, lab..."
+              className="w-full bg-transparent py-3.5 text-sm text-text placeholder:text-text-3 outline-none"
               autoFocus
             />
-            <button onClick={onClose} className="p-1 text-txt-muted hover:text-txt rounded">
-              <X className="w-4 h-4" />
+            <button onClick={onClose} className="p-1 text-text-3 hover:text-text rounded-[6px] hover:bg-surface-2 transition-colors">
+              <X className="w-4 h-4 stroke-[1.75]" />
             </button>
           </div>
 
           <Command.List className="max-h-80 overflow-y-auto p-2 space-y-1">
-            <Command.Empty className="py-6 text-center text-xs text-txt-muted">
+            <Command.Empty className="py-6 text-center text-xs text-text-3">
               No matching results found.
             </Command.Empty>
 
-            <Command.Group heading="Navigation" className="text-[10px] uppercase font-semibold text-txt-faint px-2 py-1.5">
+            <Command.Group heading="Navigation" className="text-xs font-medium text-text-3 px-2 py-1.5">
               <Command.Item
                 onSelect={() => handleSelect('/')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-txt rounded-input hover:bg-surface-2 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
               >
-                <Compass className="w-4 h-4 text-accent" />
+                <Compass className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Dashboard</span>
               </Command.Item>
               <Command.Item
                 onSelect={() => handleSelect('/projects')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-txt rounded-input hover:bg-surface-2 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
               >
-                <Folder className="w-4 h-4 text-accent" />
+                <FolderKanban className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Projects</span>
               </Command.Item>
               <Command.Item
                 onSelect={() => handleSelect('/equipment')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-txt rounded-input hover:bg-surface-2 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
               >
-                <TestTube className="w-4 h-4 text-accent" />
+                <CalendarClock className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Equipment Reservation</span>
               </Command.Item>
               <Command.Item
                 onSelect={() => handleSelect('/lab')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-txt rounded-input hover:bg-surface-2 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
               >
-                <Database className="w-4 h-4 text-accent" />
+                <Terminal className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Testing Environment (Lab)</span>
               </Command.Item>
               <Command.Item
                 onSelect={() => handleSelect('/design')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-txt rounded-input hover:bg-surface-2 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
               >
-                <Compass className="w-4 h-4 text-warning" />
+                <FlaskConical className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Design System Showcase (/design)</span>
               </Command.Item>
             </Command.Group>

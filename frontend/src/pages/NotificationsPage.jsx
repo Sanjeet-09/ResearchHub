@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { notificationApi } from '../services/api';
-import { PageHeader, Card, Button, Badge, Skeleton, EmptyState } from '../components/ui';
+import { PageHeader, Card, Button, Badge, Skeleton, EmptyState, IconChip } from '../components/ui';
 import {
   Bell,
   CheckCheck,
@@ -10,20 +10,19 @@ import {
   FolderKanban,
   Database,
   BookOpen,
-  FlaskConical,
   Terminal,
   ExternalLink,
   RefreshCw,
   Info,
 } from 'lucide-react';
 
-const NOTIF_ICONS = {
-  project_added: { icon: FolderKanban, color: 'text-accent', bg: 'bg-accent/15 border-accent/30' },
-  reservation_confirmed: { icon: CalendarClock, color: 'text-success', bg: 'bg-success/15 border-success/30' },
-  reservation_cancelled: { icon: CalendarClock, color: 'text-danger', bg: 'bg-danger/15 border-danger/30' },
-  dataset_version: { icon: Database, color: 'text-info', bg: 'bg-info/15 border-info/30' },
-  publication_status: { icon: BookOpen, color: 'text-warning', bg: 'bg-warning/15 border-warning/30' },
-  lab_alert: { icon: Terminal, color: 'text-accent', bg: 'bg-accent/15 border-accent/30' },
+const NOTIF_CONFIGS = {
+  project_added: { icon: FolderKanban },
+  reservation_confirmed: { icon: CalendarClock },
+  reservation_cancelled: { icon: CalendarClock },
+  dataset_version: { icon: Database },
+  publication_status: { icon: BookOpen },
+  lab_alert: { icon: Terminal },
 };
 
 export const NotificationsPage = () => {
@@ -93,11 +92,11 @@ export const NotificationsPage = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto select-none">
       {/* Header */}
       <PageHeader
         title="Notifications"
-        description="Stay updated with laboratory reservations, team activities, and project status changes."
+        description="Updates regarding reservations, team activities, and project status changes."
         action={
           <div className="flex items-center gap-2">
             <Button
@@ -117,37 +116,37 @@ export const NotificationsPage = () => {
                 onClick={handleMarkAllAsRead}
                 disabled={actionLoading}
               >
-                Mark All Read
+                Mark all read
               </Button>
             )}
           </div>
         }
       />
 
-      {/* Filter Tabs */}
-      <div className="flex items-center justify-between border-b border-border pb-3">
-        <div className="flex items-center gap-2">
+      {/* Segmented Filter Control */}
+      <div className="flex items-center justify-between pb-1">
+        <div className="inline-flex items-center gap-1 p-1 bg-surface-2 rounded-[8px] border border-border">
           <button
             onClick={() => setActiveFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            className={`px-3 py-1.5 rounded-[6px] text-xs font-medium transition-colors ${
               activeFilter === 'all'
-                ? 'bg-accent/15 text-accent border border-accent/30'
-                : 'text-txt-muted hover:text-txt bg-surface-2'
+                ? 'bg-surface-3 text-text shadow-sm'
+                : 'text-text-3 hover:text-text'
             }`}
           >
             All Notifications
           </button>
           <button
             onClick={() => setActiveFilter('unread')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-[6px] text-xs font-medium transition-colors flex items-center gap-1.5 ${
               activeFilter === 'unread'
-                ? 'bg-accent/15 text-accent border border-accent/30'
-                : 'text-txt-muted hover:text-txt bg-surface-2'
+                ? 'bg-surface-3 text-text shadow-sm'
+                : 'text-text-3 hover:text-text'
             }`}
           >
             Unread
             {unreadCount > 0 && (
-              <span className="bg-accent text-white px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold">
+              <span className="bg-surface-1 border border-border-strong text-text px-1.5 py-0.2 rounded-full text-[10px] font-mono">
                 {unreadCount}
               </span>
             )}
@@ -157,9 +156,9 @@ export const NotificationsPage = () => {
 
       {/* Error state */}
       {error && (
-        <Card className="p-4 bg-danger/10 border-danger/30 text-xs text-danger flex items-center justify-between">
+        <Card className="p-4 bg-danger-bg border border-danger/30 text-xs text-danger flex items-center justify-between">
           <span>{error}</span>
-          <Button variant="ghost" size="sm" onClick={fetchNotifications} className="text-danger hover:bg-danger/20">
+          <Button variant="ghost" size="sm" onClick={fetchNotifications} className="text-danger hover:bg-danger-bg">
             Retry
           </Button>
         </Card>
@@ -170,7 +169,7 @@ export const NotificationsPage = () => {
         <div className="space-y-3">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i} className="p-4 flex gap-4 items-center">
-              <Skeleton className="w-10 h-10 rounded-lg shrink-0" />
+              <Skeleton className="w-9 h-9 rounded-[8px] shrink-0" />
               <div className="flex-1 space-y-2">
                 <Skeleton className="h-4 w-1/3" />
                 <Skeleton className="h-3 w-2/3" />
@@ -187,54 +186,48 @@ export const NotificationsPage = () => {
           title={activeFilter === 'unread' ? 'No unread notifications' : 'No notifications'}
           description={
             activeFilter === 'unread'
-              ? "You're all caught up! There are no unread notifications right now."
+              ? "You're all caught up! There are no unread alerts right now."
               : 'Alerts and updates about project tasks and equipment bookings will show up here.'
           }
-          actionText={activeFilter === 'unread' ? 'View All Notifications' : undefined}
+          actionLabel={activeFilter === 'unread' ? 'View all notifications' : undefined}
           onAction={() => setActiveFilter('all')}
         />
       )}
 
       {/* Notification List */}
       {!loading && notifications.length > 0 && (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {notifications.map((notif) => {
-            const conf = NOTIF_ICONS[notif.type] || {
+            const conf = NOTIF_CONFIGS[notif.type] || {
               icon: Info,
-              color: 'text-accent',
-              bg: 'bg-accent/15 border-accent/30',
             };
             const Icon = conf.icon;
 
             return (
               <Card
                 key={notif.id}
-                className={`p-4 transition-all flex items-start justify-between gap-4 ${
+                className={`p-4 transition-colors flex items-start justify-between gap-4 ${
                   notif.is_read
-                    ? 'bg-surface/50 border-border/50 opacity-80 hover:opacity-100'
-                    : 'bg-surface-2 border-accent/30 ring-1 ring-accent/15 shadow-sm'
+                    ? 'opacity-80 hover:opacity-100'
+                    : 'border-border-strong'
                 }`}
               >
-                <div className="flex items-start gap-3.5">
-                  <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border ${conf.bg} ${conf.color}`}
-                  >
-                    <Icon className="w-4 h-4" />
-                  </div>
+                <div className="flex items-start gap-3.5 min-w-0">
+                  <IconChip icon={Icon} size="md" />
 
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-semibold text-txt">{notif.title}</h4>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-xs font-semibold text-text">{notif.title}</h4>
                       {!notif.is_read && (
-                        <span className="w-2 h-2 rounded-full bg-accent animate-pulse-soft" />
+                        <span className="w-2 h-2 rounded-full bg-text shrink-0" />
                       )}
-                      <span className="text-[11px] font-mono text-txt-faint">
+                      <span className="text-[11px] font-mono text-text-3">
                         {formatTimeAgo(notif.created_at)}
                       </span>
                     </div>
 
                     {notif.body && (
-                      <p className="text-xs text-txt-muted leading-relaxed">
+                      <p className="text-xs text-text-2 leading-relaxed">
                         {notif.body}
                       </p>
                     )}
@@ -243,9 +236,9 @@ export const NotificationsPage = () => {
                       <div className="pt-1">
                         <Link
                           to={notif.link}
-                          className="text-[11px] text-accent hover:underline font-semibold inline-flex items-center gap-1"
+                          className="text-[11px] text-text hover:underline font-medium inline-flex items-center gap-1 transition-colors"
                         >
-                          View Details <ExternalLink className="w-3 h-3" />
+                          View details <ExternalLink className="w-3 h-3 stroke-[1.75]" />
                         </Link>
                       </div>
                     )}
@@ -256,7 +249,7 @@ export const NotificationsPage = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-txt-muted hover:text-txt text-xs shrink-0"
+                    className="text-text-3 hover:text-text text-xs shrink-0"
                     icon={Check}
                     onClick={() => handleMarkAsRead(notif.id)}
                     title="Mark as Read"

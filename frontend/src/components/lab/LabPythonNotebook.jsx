@@ -447,8 +447,8 @@ globals().clear()
             <Cpu className="w-3 h-3" />
             {profileKey}
           </Badge>
-          <span className="text-[11px] font-mono text-txt-muted flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-success shadow-[0_0_8px_rgba(61,214,140,0.4)]" />
+          <span className="text-[11px] font-mono text-text-2 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-success" />
             {loadingMsg}
           </span>
         </div>
@@ -594,9 +594,9 @@ globals().clear()
                       {/* SVG Line / Bar Representation */}
                       <svg className="w-full h-24 overflow-visible" viewBox="0 0 500 100">
                         {/* Grid lines */}
-                        <line x1="0" y1="20" x2="500" y2="20" stroke="rgba(255,255,255,0.06)" />
-                        <line x1="0" y1="50" x2="500" y2="50" stroke="rgba(255,255,255,0.06)" />
-                        <line x1="0" y1="80" x2="500" y2="80" stroke="rgba(255,255,255,0.06)" />
+                        <line x1="0" y1="20" x2="500" y2="20" stroke="#242424" />
+                        <line x1="0" y1="50" x2="500" y2="50" stroke="#242424" />
+                        <line x1="0" y1="80" x2="500" y2="80" stroke="#242424" />
 
                         {/* Accuracy Path */}
                         <path

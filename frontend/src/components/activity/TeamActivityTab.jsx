@@ -253,7 +253,7 @@ export const TeamActivityTab = ({ projectId, isMember }) => {
             {members.map((member) => (
               <Card
                 key={member.userId}
-                className="p-4 space-y-3 relative hover:border-border-strong transition-all bg-surface/90"
+                className="p-4 space-y-3 relative hover:border-line-strong transition-colors bg-panel border-line"
               >
                 {/* Header: Avatar, Name, Role badge, Status */}
                 <div className="flex items-start justify-between gap-3">
@@ -261,17 +261,17 @@ export const TeamActivityTab = ({ projectId, isMember }) => {
                     <Avatar name={member.fullName || member.email} size="md" />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-txt truncate">
+                        <span className="text-xs font-semibold text-text truncate">
                           {member.fullName || 'User'}
                         </span>
                       </div>
-                      <span className="text-[11px] font-mono text-txt-muted truncate block">
+                      <span className="text-[11px] font-mono text-text-3 truncate block">
                         {member.email}
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <Badge
                       variant={
                         member.projectRole === 'lead'
@@ -287,38 +287,38 @@ export const TeamActivityTab = ({ projectId, isMember }) => {
                     </Badge>
                     <StatusDot
                       status={member.status}
+                      pulse={member.status === 'online'}
                       size="sm"
                       label={member.status}
-                      className="text-[10px]"
                     />
                   </div>
                 </div>
 
-                {/* Doing Now Callout (Section 10) */}
-                <div className="p-2.5 rounded-lg bg-surface-2 border border-border/80 flex items-start gap-2.5">
-                  <div className="mt-0.5">
+                {/* Doing Now Callout */}
+                <div className="p-2.5 rounded-[10px] bg-panel-2 border border-line flex items-start gap-2.5">
+                  <div className="mt-0.5 shrink-0">
                     {member.labSession ? (
-                      <Terminal className="w-3.5 h-3.5 text-accent animate-pulse-soft" />
+                      <Terminal className="w-3.5 h-3.5 text-brand-1 animate-pulse-soft stroke-[1.75]" />
                     ) : member.status === 'online' ? (
-                      <Activity className="w-3.5 h-3.5 text-success" />
+                      <Activity className="w-3.5 h-3.5 text-success stroke-[1.75]" />
                     ) : (
-                      <Clock className="w-3.5 h-3.5 text-txt-faint" />
+                      <Clock className="w-3.5 h-3.5 text-text-3 stroke-[1.75]" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <span className="text-[10px] text-txt-muted block uppercase tracking-wider font-semibold">
-                      Doing Now
+                    <span className="text-[10px] text-text-3 block uppercase tracking-wider font-medium">
+                      Doing now
                     </span>
-                    <span className="text-xs font-medium text-txt truncate block">
-                      {member.doingNow}
+                    <span className="text-xs font-medium text-text truncate block">
+                      {member.doingNow || 'Browsing research workspace'}
                     </span>
                   </div>
                 </div>
 
                 {/* Footer: Last active */}
-                <div className="flex items-center justify-between text-[11px] text-txt-faint pt-1 border-t border-border/60">
+                <div className="flex items-center justify-between text-[11px] text-text-3 pt-1 border-t border-line">
                   <span>Last heartbeat</span>
-                  <span className="font-mono text-txt-muted">
+                  <span className="font-mono text-text-2" title={member.lastHeartbeatAt ? new Date(member.lastHeartbeatAt).toLocaleString() : undefined}>
                     {formatRelativeTime(member.lastHeartbeatAt)}
                   </span>
                 </div>

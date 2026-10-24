@@ -1,14 +1,25 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Search, Bell, ChevronRight, LogOut } from 'lucide-react';
+import { Search, Bell, ChevronRight } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../../context/AuthContext';
+import { cn } from '@/lib/utils';
 
 export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 0 }) => {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const [isScrolled, setIsScrolled] = useState(false);
 
-  const currentUser = user || { name: 'Guest User', role: 'student' };
+  const currentUser = user || { name: 'Researcher', role: 'student' };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 12);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const pathParts = location.pathname.split('/').filter(Boolean);
   const breadcrumbs = [
@@ -21,18 +32,25 @@ export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 0 }) => {
   ];
 
   return (
-    <header className="h-14 bg-surface border-b border-border px-6 flex items-center justify-between sticky top-0 z-20">
+    <header
+      className={cn(
+        'h-16 px-6 flex items-center justify-between sticky top-0 z-20 transition-all duration-150',
+        isScrolled
+          ? 'glass-panel'
+          : 'bg-transparent border-b border-transparent'
+      )}
+    >
       {/* Left: Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-xs text-txt-muted">
+      <nav className="flex items-center gap-1.5 text-xs text-text-3">
         {breadcrumbs.map((bc, idx) => {
           const isLast = idx === breadcrumbs.length - 1;
           return (
             <React.Fragment key={bc.path}>
-              {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-txt-faint" />}
+              {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-text-3/60 stroke-[1.75]" />}
               {isLast ? (
-                <span className="font-semibold text-txt">{bc.label}</span>
+                <span className="font-medium text-text">{bc.label}</span>
               ) : (
-                <Link to={bc.path} className="hover:text-txt transition-colors">
+                <Link to={bc.path} className="hover:text-text transition-colors">
                   {bc.label}
                 </Link>
               )}
@@ -41,47 +59,40 @@ export const Topbar = ({ onOpenCommandPalette, unreadNotifications = 0 }) => {
         })}
       </nav>
 
-      {/* Centre: Command Palette Trigger */}
+      {/* Centre: Search Pill with Ctrl+K chip */}
       <button
         onClick={onOpenCommandPalette}
-        className="flex items-center gap-3 bg-surface-2 border border-border hover:border-border-strong px-3 py-1.5 rounded-input text-xs text-txt-muted transition-colors w-72 justify-between"
+        className="flex items-center gap-3 bg-panel border border-line hover:border-line-strong px-3.5 py-1.5 rounded-full text-xs text-text-3 transition-colors w-72 justify-between shadow-sm"
       >
         <div className="flex items-center gap-2">
-          <Search className="w-3.5 h-3.5 text-txt-faint" />
+          <Search className="w-3.5 h-3.5 text-text-3 stroke-[1.75]" />
           <span>Search or jump to...</span>
         </div>
-        <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-surface-3 border border-border rounded text-txt-faint">
-          Ctrl+K
+        <kbd className="px-2 py-0.5 text-[10px] font-mono bg-panel-2 border border-line rounded-md text-text-2">
+          Ctrl K
         </kbd>
       </button>
 
-      {/* Right: Notifications & Avatar / Logout */}
+      {/* Right: Notifications & Avatar */}
       <div className="flex items-center gap-3">
         <Link
           to="/notifications"
-          className="relative p-2 rounded-input hover:bg-surface-2 text-txt-muted hover:text-txt transition-colors"
+          className="relative p-2 rounded-lg hover:bg-panel-2 text-text-3 hover:text-text transition-colors"
           title={`Notifications${unreadNotifications > 0 ? ` (${unreadNotifications} unread)` : ''}`}
         >
-          <Bell className="w-4 h-4" />
+          <Bell className="w-4 h-4 stroke-[1.75]" />
           {unreadNotifications > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent animate-pulse-soft" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-2 animate-pulse-soft" />
           )}
         </Link>
 
-        <div className="h-4 w-[1px] bg-border" />
+        <div className="h-4 w-[1px] bg-line" />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Avatar name={currentUser.full_name || currentUser.name || currentUser.email} size="sm" />
-          <span className="text-xs font-semibold text-txt hidden sm:inline">
-            {currentUser.full_name || currentUser.name || 'User'}
+          <span className="text-xs font-medium text-text hidden sm:inline">
+            {currentUser.full_name || currentUser.name || 'Researcher'}
           </span>
-          <button
-            onClick={logout}
-            className="p-1.5 rounded-input hover:bg-danger/10 hover:text-danger text-txt-muted transition-colors sm:hidden"
-            title="Sign Out"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
     </header>
