@@ -173,6 +173,58 @@ code, kbd, samp, pre, .font-mono {
   animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Modal & Dialog Solid Opaque Background Enforcement */
+[role="dialog"],
+[role="alertdialog"],
+.modal-content,
+.dialog-content {
+  background-color: #111111 !important;
+  border-color: #242424 !important;
+  color: #EDEDED !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.95) !important;
+}
+
+/* Modal Inputs & Textareas Opaque Dark Enforcement */
+[role="dialog"] input:not([type="checkbox"]):not([type="radio"]),
+[role="dialog"] textarea,
+[role="dialog"] select,
+[role="alertdialog"] input:not([type="checkbox"]):not([type="radio"]),
+[role="alertdialog"] textarea,
+[role="alertdialog"] select {
+  background-color: #171717 !important;
+  border-color: #242424 !important;
+  color: #EDEDED !important;
+}
+
+[role="dialog"] input:not([type="checkbox"]):not([type="radio"])::placeholder,
+[role="dialog"] textarea::placeholder,
+[role="alertdialog"] input:not([type="checkbox"]):not([type="radio"])::placeholder,
+[role="alertdialog"] textarea::placeholder {
+  color: #6E6E6E !important;
+}
+
+[role="dialog"] input:not([type="checkbox"]):not([type="radio"]):focus,
+[role="dialog"] textarea:focus,
+[role="alertdialog"] input:not([type="checkbox"]):not([type="radio"]):focus,
+[role="alertdialog"] textarea:focus {
+  border-color: #EDEDED !important;
+  outline: none !important;
+}
+
+/* Primary Button Hover Dark Text Rule (Prevent White-on-White) */
+button[class*="bg-[#EDEDED]"]:hover,
+button[class*="bg-primary"]:hover,
+button.btn-primary:hover {
+  background-color: #FFFFFF !important;
+  color: #0A0A0A !important;
+}
+
+button[class*="bg-[#EDEDED]"]:hover *,
+button[class*="bg-primary"]:hover *,
+button.btn-primary:hover * {
+  color: #0A0A0A !important;
+}
+
 /* Reduced motion per Section 7 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

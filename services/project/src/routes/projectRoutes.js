@@ -16,6 +16,8 @@ const {
   createMilestone,
   updateMilestone,
   deleteMilestone,
+  getProjectMessages,
+  createProjectMessage,
 } = require('../controllers/projectController');
 
 const router = express.Router();
@@ -40,5 +42,9 @@ router.delete('/:id/members/:userId', requireProjectRole('lead'), removeMember);
 router.post('/:id/milestones', requireProjectRole('member'), createMilestone);
 router.patch('/:id/milestones/:milestoneId', requireProjectRole('member'), updateMilestone);
 router.delete('/:id/milestones/:milestoneId', requireProjectRole('lead'), deleteMilestone);
+
+// Discussion & Messaging routes
+router.get('/:id/messages', requireProjectRole('viewer'), getProjectMessages);
+router.post('/:id/messages', requireProjectRole('member'), createProjectMessage);
 
 module.exports = router;

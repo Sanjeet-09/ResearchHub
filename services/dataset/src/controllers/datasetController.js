@@ -1,3 +1,4 @@
+const path = require('path');
 const { z } = require('zod');
 const {
   query,
@@ -62,6 +63,8 @@ const getDatasets = async (req, res, next) => {
          dv.id AS current_version_id,
          dv.version_no AS current_version_no,
          dv.size_bytes AS current_size_bytes,
+         dv.gcs_path AS current_gcs_path,
+         dv.metadata AS current_metadata,
          dv.created_at AS current_version_created_at,
          vu.full_name AS current_version_author
        FROM datasets d
@@ -73,7 +76,32 @@ const getDatasets = async (req, res, next) => {
       [pid]
     );
 
-    res.json({ datasets: result.rows });
+    const storage = getStorageAdapter();
+    const datasets = await Promise.all(
+      result.rows.map(async (row) => {
+        let downloadUrl = null;
+        let fileName = null;
+        if (row.current_gcs_path) {
+          const key = row.current_gcs_path.replace(/^gs:\/\/[^/]+\//, '');
+          downloadUrl = await storage.getSignedDownloadUrl('researchhub-storage', key, 60);
+          const rawName = row.current_metadata?.fileName || path.basename(key);
+          fileName = rawName.replace(/^[^_]+_[^_]+_[^_]+_v\d+_/, '') || rawName;
+        }
+        if (!fileName) {
+          fileName = row.name.endsWith('.csv')
+            ? row.name
+            : `${row.name.toLowerCase().replace(/[^a-z0-9_.-]/g, '_')}.csv`;
+        }
+        return {
+          ...row,
+          file_name: fileName,
+          download_url: downloadUrl,
+          file_url: downloadUrl,
+        };
+      })
+    );
+
+    res.json({ datasets });
   } catch (err) {
     next(err);
   }

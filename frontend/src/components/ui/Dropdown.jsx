@@ -22,7 +22,7 @@ export const Dropdown = ({ trigger, items = [], align = 'right', className }) =>
       {isOpen && (
         <div
           className={clsx(
-            'absolute z-dropdown mt-1.5 w-48 rounded-[8px] bg-surface-1 border border-border-strong shadow-floating py-1 focus:outline-none animate-in fade-in slide-in-from-top-1 duration-150',
+            'absolute z-dropdown mt-1.5 w-48 rounded-lg bg-[#111111] border border-[#242424] shadow-2xl shadow-black py-1 focus:outline-none animate-in fade-in slide-in-from-top-1 duration-150',
             align === 'right' ? 'right-0' : 'left-0',
             className
           )}

@@ -111,14 +111,89 @@ async function checkDockerImageExists(image) {
 }
 
 /**
+ * Synchronize project datasets into the /workspace/datasets folder.
+ * Ensures datasets/data.csv exists, and any uploaded project datasets
+ * are copied into /workspace/datasets/.
+ */
+async function syncProjectDatasets(workspaceDir, projectId) {
+  try {
+    const datasetsDir = path.join(workspaceDir, 'datasets');
+    if (!fs.existsSync(datasetsDir)) {
+      fs.mkdirSync(datasetsDir, { recursive: true });
+    }
+
+    // Default sample data so pd.read_csv('datasets/data.csv') works immediately
+    const sampleCsvPath = path.join(datasetsDir, 'data.csv');
+    if (!fs.existsSync(sampleCsvPath)) {
+      const sampleCsv = `sample_id,concentration_ug_ml,absorbance_nm,status\nS-101,4.52,0.312,Pass\nS-102,8.14,0.598,Pass\nS-103,12.80,0.942,Review\nS-104,1.95,0.145,Pass\n`;
+      fs.writeFileSync(sampleCsvPath, sampleCsv, 'utf8');
+    }
+
+    if (!projectId) return;
+
+    let pool, getStorageAdapter;
+    try {
+      const shared = require('@rh/shared');
+      pool = shared.pool;
+      getStorageAdapter = shared.getStorageAdapter;
+    } catch (e) {
+      return;
+    }
+
+    if (!pool || !getStorageAdapter) return;
+
+    const storage = getStorageAdapter();
+
+    const result = await pool.query(
+      `SELECT d.id, d.name, dv.id AS version_id, dv.gcs_path, dv.metadata
+       FROM datasets d
+       JOIN dataset_versions dv ON d.current_version_id = dv.id
+       WHERE d.project_id = $1`,
+      [projectId]
+    );
+
+    for (const row of result.rows) {
+      if (!row.gcs_path) continue;
+      const key = row.gcs_path.replace(/^gs:\/\/[^/]+\//, '');
+      const storageFilePath = typeof storage._getFilePath === 'function'
+        ? storage._getFilePath('researchhub-storage', key)
+        : null;
+
+      let fileBuffer = null;
+      if (storageFilePath && fs.existsSync(storageFilePath)) {
+        fileBuffer = fs.readFileSync(storageFilePath);
+      }
+
+      if (fileBuffer) {
+        const rawName = row.metadata?.fileName || path.basename(key);
+        const cleanName = rawName.replace(/^[^_]+_[^_]+_[^_]+_v\d+_/, '') || rawName;
+        const targetPath = path.join(datasetsDir, cleanName);
+        fs.writeFileSync(targetPath, fileBuffer);
+
+        const nameBased = `${row.name.toLowerCase().replace(/[^a-z0-9_.-]/g, '_')}.csv`;
+        if (nameBased !== cleanName) {
+          fs.writeFileSync(path.join(datasetsDir, nameBased), fileBuffer);
+        }
+      }
+    }
+    logger.info({ workspaceDir, projectId }, 'Project datasets synchronized to workspace');
+  } catch (err) {
+    logger.warn({ err: err.message, projectId }, 'Failed to sync project datasets into workspace (non-fatal)');
+  }
+}
+
+/**
  * Create a new lab container.
  * If the Docker image is available, runs a local Docker container.
  * If the Docker image is not yet built, seamlessly falls back to an embedded local JupyterLab server.
  */
-async function create({ sessionId, userId, profileKey, jupyterToken, workspaceDir }) {
+async function create({ sessionId, userId, profileKey, jupyterToken, workspaceDir, projectId }) {
   const name = containerName(sessionId);
   const image = resolveImage(profileKey);
   const port = await findFreePort();
+
+  // Populate datasets folder inside the mounted volume
+  await syncProjectDatasets(workspaceDir, projectId);
 
   // 1. Try Docker if image exists locally
   const hasDockerImage = await checkDockerImageExists(image);
@@ -361,4 +436,5 @@ module.exports = {
   workspaceExists,
   deleteWorkspace,
   containerName,
+  syncProjectDatasets,
 };

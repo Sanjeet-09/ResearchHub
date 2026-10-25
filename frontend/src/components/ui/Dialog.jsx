@@ -13,6 +13,7 @@ export const Dialog = ({
   children,
   className,
   maxWidth = 'max-w-lg',
+  size,
 }) => {
   const isControlled = open !== undefined;
   const isShown = isControlled ? open : isOpen;
@@ -21,28 +22,37 @@ export const Dialog = ({
     if (!nextOpen && onClose) onClose();
   };
 
+  const sizeMap = {
+    sm: 'max-w-sm',
+    md: 'max-w-md',
+    lg: 'max-w-lg',
+    xl: 'max-w-xl',
+    '2xl': 'max-w-2xl',
+  };
+  const resolvedWidth = size ? (sizeMap[size] || size) : maxWidth;
+
   return (
     <RadixDialog.Root open={isShown} onOpenChange={handleOpenChange}>
       <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-70 bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150" />
-        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 overflow-y-auto">
+        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/75 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <RadixDialog.Content
             className={cn(
-              'relative w-full max-h-[calc(100vh-2rem)] flex flex-col bg-surface-1 border border-border-strong rounded-[12px] shadow-floating overflow-hidden z-10 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-150',
-              maxWidth,
+              'relative w-full max-h-[calc(100vh-2rem)] flex flex-col bg-[#111111] border border-[#242424] shadow-2xl shadow-black rounded-xl text-[#EDEDED] overflow-hidden z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-150',
+              resolvedWidth,
               className
             )}
           >
             {(title || onClose) && (
-              <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-4 flex-shrink-0">
+              <div className="px-5 py-4 border-b border-[#242424] flex items-center justify-between gap-4 flex-shrink-0">
                 <div>
                   {title && (
-                    <RadixDialog.Title className="text-base font-semibold text-text">
+                    <RadixDialog.Title className="text-base font-semibold text-[#EDEDED]">
                       {title}
                     </RadixDialog.Title>
                   )}
                   {description && (
-                    <RadixDialog.Description className="text-xs text-text-2 mt-0.5">
+                    <RadixDialog.Description className="text-xs text-[#A1A1A1] mt-0.5">
                       {description}
                     </RadixDialog.Description>
                   )}
@@ -51,7 +61,7 @@ export const Dialog = ({
                   <RadixDialog.Close asChild>
                     <button
                       onClick={onClose}
-                      className="text-text-3 hover:text-text p-1.5 rounded-[8px] hover:bg-surface-2 transition-colors flex-shrink-0"
+                      className="text-[#6E6E6E] hover:text-[#EDEDED] p-1.5 rounded-lg hover:bg-[#171717] transition-colors flex-shrink-0"
                       aria-label="Close"
                     >
                       <X className="w-4 h-4 stroke-[1.75]" />
@@ -67,3 +77,4 @@ export const Dialog = ({
     </RadixDialog.Root>
   );
 };
+

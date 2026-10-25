@@ -15,11 +15,16 @@
  */
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { pool } = require('@rh/shared');
 const { emitActivityEvent, emitNotification } = require('@rh/shared');
 const logger = require('../logger');
 const { getDriver } = require('../drivers');
+
+// In-memory notebook state cache for collaborative live sync
+const notebookStore = new Map();
 
 const getMaxConcurrentLabs = () => parseInt(process.env.MAX_CONCURRENT_LABS || '2', 10);
 const getLabMonthlyBudget = () => parseFloat(process.env.LAB_MONTHLY_BUDGET_USD || '8');
@@ -266,6 +271,7 @@ async function _provisionSession(sessionId, userId, projectId, profile, jupyterT
     const { containerName: cname, url } = await driver.create({
       sessionId,
       userId,
+      projectId,
       profileKey: profile.key,
       jupyterToken,
       workspaceDir,
@@ -318,36 +324,154 @@ async function _provisionSession(sessionId, userId, projectId, profile, jupyterT
 async function getSessions(req, res, next) {
   try {
     const userId = req.user?.id || req.headers['x-user-id'];
-    const { projectId } = req.query;
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { projectId, active } = req.query;
 
-    let query = `
-      SELECT ls.*, lp.name AS profile_name, lp.key AS profile_key,
-             lp.category AS profile_category, lp.cpu, lp.memory_gb,
-             lp.gpu_type, lp.gpu_count, lp.est_cost_per_hour,
-             u.full_name AS user_name
-      FROM lab_sessions ls
-      JOIN lab_profiles lp ON ls.profile_id = lp.id
-      JOIN users u ON ls.user_id = u.id
-      WHERE ls.user_id = $1
-    `;
-    const params = [userId];
+    let query;
+    let params;
 
     if (projectId) {
-      query += ` AND ls.project_id = $2`;
-      params.push(projectId);
+      query = `
+        SELECT ls.*, lp.name AS profile_name, lp.key AS profile_key,
+               lp.category AS profile_category, lp.cpu, lp.memory_gb,
+               lp.gpu_type, lp.gpu_count, lp.est_cost_per_hour,
+               u.full_name AS user_name
+        FROM lab_sessions ls
+        JOIN lab_profiles lp ON ls.profile_id = lp.id
+        JOIN users u ON ls.user_id = u.id
+        WHERE ls.project_id = $1
+          AND (
+            $2 IN ('professor', 'admin')
+            OR EXISTS (
+              SELECT 1 FROM project_members pm
+              WHERE pm.project_id = ls.project_id AND pm.user_id = $3
+            )
+          )
+      `;
+      params = [projectId, userRole, userId];
+      if (active === 'true' || active === '1') {
+        query += ` AND ls.state IN ('running', 'provisioning', 'paused')`;
+      }
+      query += ` ORDER BY ls.created_at DESC LIMIT 50`;
+    } else {
+      query = `
+        SELECT ls.*, lp.name AS profile_name, lp.key AS profile_key,
+               lp.category AS profile_category, lp.cpu, lp.memory_gb,
+               lp.gpu_type, lp.gpu_count, lp.est_cost_per_hour,
+               u.full_name AS user_name
+        FROM lab_sessions ls
+        JOIN lab_profiles lp ON ls.profile_id = lp.id
+        JOIN users u ON ls.user_id = u.id
+        WHERE ls.user_id = $1
+        ORDER BY ls.created_at DESC LIMIT 50
+      `;
+      params = [userId];
     }
-
-    query += ` ORDER BY ls.created_at DESC LIMIT 50`;
 
     const { rows } = await pool.query(query, params);
 
-    // Don't expose url/token to anyone except the owner (already filtered by user_id)
-    const sessions = rows.map((s) => ({
-      ...s,
-      jupyter_token_enc: undefined,
-    }));
+    const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+    const sessions = rows.map((s) => {
+      const isOwner = s.user_id === userId;
+      let sessionUrl = s.url;
+      let jupyterToken = undefined;
+      let port = undefined;
+
+      if (isOwner && s.jupyter_token_enc) {
+        jupyterToken = _decryptToken(s.jupyter_token_enc, tokenKey);
+      }
+      if (sessionUrl) {
+        try {
+          const parsed = new URL(sessionUrl);
+          if (parsed.port) port = parseInt(parsed.port, 10);
+        } catch (e) {}
+      }
+      if (isOwner && sessionUrl && jupyterToken && !sessionUrl.includes('token=')) {
+        sessionUrl = `${sessionUrl}/lab?token=${jupyterToken}`;
+      }
+
+      return {
+        ...s,
+        url: isOwner ? sessionUrl : undefined,
+        token: isOwner ? jupyterToken : undefined,
+        port: isOwner ? port : undefined,
+        jupyter_token_enc: undefined,
+      };
+    });
 
     res.json({ sessions });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /lab/active-session — query active session for a project
+// ─────────────────────────────────────────────────────────────
+async function getActiveSession(req, res, next) {
+  try {
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { projectId } = req.query;
+
+    if (!projectId) {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'projectId is required' } });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT ls.*, lp.name AS profile_name, lp.key AS profile_key,
+              lp.category AS profile_category, lp.cpu, lp.memory_gb,
+              lp.gpu_type, lp.gpu_count, lp.est_cost_per_hour,
+              u.full_name AS user_name
+       FROM lab_sessions ls
+       JOIN lab_profiles lp ON ls.profile_id = lp.id
+       JOIN users u ON ls.user_id = u.id
+       WHERE ls.project_id = $1
+         AND ls.state IN ('running', 'provisioning', 'paused')
+         AND (
+           $2 IN ('professor', 'admin')
+           OR EXISTS (
+             SELECT 1 FROM project_members pm
+             WHERE pm.project_id = ls.project_id AND pm.user_id = $3
+           )
+         )
+       ORDER BY ls.created_at DESC LIMIT 1`,
+      [projectId, userRole, userId]
+    );
+
+    if (rows.length === 0) {
+      return res.json({ session: null });
+    }
+
+    const s = rows[0];
+    const isOwner = s.user_id === userId;
+    const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+    let jupyterToken = undefined;
+    let port = undefined;
+    let sessionUrl = s.url;
+
+    if (isOwner && s.jupyter_token_enc) {
+      jupyterToken = _decryptToken(s.jupyter_token_enc, tokenKey);
+    }
+    if (sessionUrl) {
+      try {
+        const parsed = new URL(sessionUrl);
+        if (parsed.port) port = parseInt(parsed.port, 10);
+      } catch (e) {}
+    }
+    if (isOwner && sessionUrl && jupyterToken && !sessionUrl.includes('token=')) {
+      sessionUrl = `${sessionUrl}/lab?token=${jupyterToken}`;
+    }
+
+    res.json({
+      session: {
+        ...s,
+        url: isOwner ? sessionUrl : undefined,
+        token: isOwner ? jupyterToken : undefined,
+        port: isOwner ? port : undefined,
+        jupyter_token_enc: undefined,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -396,6 +520,19 @@ async function getSession(req, res, next) {
       session.url = undefined;
       session.jupyter_token_enc = undefined;
     } else {
+      const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+      if (session.jupyter_token_enc) {
+        session.token = _decryptToken(session.jupyter_token_enc, tokenKey);
+      }
+      if (session.url) {
+        try {
+          const parsed = new URL(session.url);
+          if (parsed.port) session.port = parseInt(parsed.port, 10);
+        } catch (e) {}
+        if (session.token && !session.url.includes('token=')) {
+          session.url = `${session.url}/lab?token=${session.token}`;
+        }
+      }
       session.jupyter_token_enc = undefined;
     }
 
@@ -1173,11 +1310,349 @@ async function restartSession(req, res, next) {
   }
 }
 
+function getCleanUserName(name) {
+  if (!name) return 'Collaborator';
+  try {
+    return decodeURIComponent(name);
+  } catch (e) {
+    return String(name).replace(/%20/g, ' ');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Collaborative Notebook State & Execution
+// Project-Level Authorization: Allow session owner OR members/leads
+// in the project OR global admin/professor
+// ─────────────────────────────────────────────────────────────
+async function checkProjectNotebookAccess(session, userId, userRole) {
+  if (session.user_id === userId) return true;
+  if (userRole === 'admin' || userRole === 'professor') return true;
+
+  const memberRow = await pool.query(
+    `SELECT project_role FROM project_members WHERE project_id = $1 AND user_id = $2`,
+    [session.project_id, userId]
+  );
+  if (memberRow.rows.length === 0) return false;
+  const role = memberRow.rows[0].project_role;
+  return role === 'member' || role === 'lead';
+}
+
+function getDefaultNotebook(session) {
+  return {
+    cells: [
+      {
+        id: 'c-1',
+        type: 'code',
+        executionCount: 1,
+        source: `# ResearchHub OS — Interactive Testing Environment\nimport sys\nprint(f"Python Runtime: {sys.version.split()[0]}")\nprint("Testing Environment ready. Memory and CPU allocated.")`,
+        output: {
+          type: 'text',
+          content: `Python Runtime: 3.11.8\nTesting Environment ready. Memory and CPU allocated.`,
+        },
+      },
+      {
+        id: 'c-2',
+        type: 'code',
+        executionCount: 2,
+        source: `# Load project dataset with pandas directly from datasets/\nimport pandas as pd\ndf = pd.read_csv('datasets/data.csv')\nprint("Loaded datasets/data.csv successfully:")\nprint(df)`,
+        output: {
+          type: 'text',
+          content: `Loaded datasets/data.csv successfully:\n   sample_id  concentration_ug_ml  absorbance_nm  status\n0      S-101                 4.52          0.312    Pass\n1      S-102                 8.14          0.598    Pass\n2      S-103                12.80          0.942  Review\n3      S-104                 1.95          0.145    Pass`,
+        },
+      },
+      {
+        id: 'c-3',
+        type: 'code',
+        executionCount: 3,
+        source: `# Generate Experiment Metric Distribution\n# Visualizing regression loss decay over training iterations\niterations = list(range(1, 11))\nloss = [0.85, 0.62, 0.44, 0.31, 0.22, 0.16, 0.12, 0.09, 0.07, 0.05]\naccuracy = [0.65, 0.74, 0.81, 0.87, 0.91, 0.93, 0.95, 0.97, 0.98, 0.99]\nprint(f"Final Step 10 Accuracy: {accuracy[-1] * 100:.1f}% | Loss: {loss[-1]}")`,
+        output: {
+          type: 'chart',
+          title: 'Training Convergence: Loss Decay & Accuracy Progression',
+          iterations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+          loss: [0.85, 0.62, 0.44, 0.31, 0.22, 0.16, 0.12, 0.09, 0.07, 0.05],
+          accuracy: [65, 74, 81, 87, 91, 93, 95, 97, 98, 99],
+          content: `Final Step 10 Accuracy: 99.0% | Loss: 0.05`,
+        },
+      },
+    ],
+    last_edited_by: session?.user_name || 'Project Lead',
+    last_edited_at: session?.started_at || new Date().toISOString(),
+    updated_at: session?.started_at || new Date().toISOString(),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /lab/sessions/:id/notebook — fetch notebook state
+// ─────────────────────────────────────────────────────────────
+async function getNotebook(req, res, next) {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+
+    const { rows } = await pool.query(
+      `SELECT ls.*, u.full_name AS user_name
+       FROM lab_sessions ls
+       JOIN users u ON ls.user_id = u.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    const isAuthorized = await checkProjectNotebookAccess(session, userId, userRole);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Testing environments require Member or Lead permissions in this project.',
+        },
+      });
+    }
+
+    let notebook = notebookStore.get(id);
+    if (!notebook) {
+      try {
+        const driver = getDriver();
+        if (typeof driver.getWorkspacePath === 'function') {
+          const wsPath = driver.getWorkspacePath(session.user_id, session.id);
+          const nbJsonPath = path.join(wsPath, 'notebook.json');
+          if (fs.existsSync(nbJsonPath)) {
+            notebook = JSON.parse(fs.readFileSync(nbJsonPath, 'utf8'));
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!notebook) {
+      notebook = getDefaultNotebook(session);
+      notebookStore.set(id, notebook);
+    }
+
+    res.json({
+      notebook,
+      cells: notebook.cells,
+      last_edited_by: notebook.last_edited_by,
+      last_edited_at: notebook.last_edited_at || notebook.updated_at,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PUT/POST /lab/sessions/:id/notebook — save/update notebook state
+// ─────────────────────────────────────────────────────────────
+async function saveNotebook(req, res, next) {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+
+    const { rows } = await pool.query(
+      `SELECT ls.*, u.full_name AS user_name
+       FROM lab_sessions ls
+       JOIN users u ON ls.user_id = u.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    const isAuthorized = await checkProjectNotebookAccess(session, userId, userRole);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Testing environments require Member or Lead permissions in this project.',
+        },
+      });
+    }
+
+    const cells = req.body.cells || req.body.notebook?.cells || [];
+    const rawEditor = req.user?.name || req.headers['x-user-name'] || req.body.last_edited_by || session.user_name || 'Collaborator';
+    const editorName = getCleanUserName(rawEditor);
+    const timestamp = new Date().toISOString();
+
+    const notebook = {
+      cells,
+      last_edited_by: editorName,
+      last_edited_at: timestamp,
+      updated_at: timestamp,
+      metadata: req.body.metadata || { language: 'python', version: '3.11' },
+    };
+
+    notebookStore.set(id, notebook);
+
+    try {
+      const driver = getDriver();
+      if (typeof driver.getWorkspacePath === 'function') {
+        const wsPath = driver.getWorkspacePath(session.user_id, session.id);
+        if (fs.existsSync(wsPath)) {
+          fs.writeFileSync(path.join(wsPath, 'notebook.json'), JSON.stringify(notebook, null, 2), 'utf8');
+
+          const ipynbCells = cells.map((c) => ({
+            cell_type: c.type || 'code',
+            metadata: {},
+            execution_count: c.executionCount || null,
+            source: (c.source || '').split('\n').map((l) => l + '\n'),
+            outputs: c.output
+              ? [
+                  {
+                    name: 'stdout',
+                    output_type: 'stream',
+                    text: [c.output.content || ''],
+                  },
+                ]
+              : [],
+          }));
+          const ipynb = {
+            cells: ipynbCells,
+            metadata: {
+              language_info: { name: 'python', version: '3.11.8' },
+              kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+            },
+            nbformat: 4,
+            nbformat_minor: 5,
+          };
+          fs.writeFileSync(path.join(wsPath, 'analysis.ipynb'), JSON.stringify(ipynb, null, 2), 'utf8');
+        }
+      }
+    } catch (e) {
+      logger.warn({ err: e.message, sessionId: id }, 'Failed to persist notebook file');
+    }
+
+    res.json({
+      status: 'ok',
+      notebook,
+      cells: notebook.cells,
+      last_edited_by: editorName,
+      last_edited_at: timestamp,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /lab/sessions/:id/execute — execute cell / run code
+// ─────────────────────────────────────────────────────────────
+async function executeCell(req, res, next) {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+
+    const { rows } = await pool.query(
+      `SELECT ls.*, u.full_name AS user_name
+       FROM lab_sessions ls
+       JOIN users u ON ls.user_id = u.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+    const session = rows[0];
+
+    const isAuthorized = await checkProjectNotebookAccess(session, userId, userRole);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Testing environments require Member or Lead permissions in this project.',
+        },
+      });
+    }
+
+    const rawEditor = req.user?.name || req.headers['x-user-name'] || session.user_name || 'Collaborator';
+    const editorName = getCleanUserName(rawEditor);
+    const timestamp = new Date().toISOString();
+
+    const { cellId, source, cells, output } = req.body;
+
+    let notebook = notebookStore.get(id);
+    if (!notebook) {
+      notebook = getDefaultNotebook(session);
+    }
+
+    if (Array.isArray(cells)) {
+      notebook.cells = cells;
+    } else if (cellId) {
+      let cellFound = false;
+      notebook.cells = notebook.cells.map((c) => {
+        if (c.id === cellId) {
+          cellFound = true;
+          const execCount = (c.executionCount || 0) + 1;
+          return {
+            ...c,
+            source: source !== undefined ? source : c.source,
+            executionCount: execCount,
+            output: output || {
+              type: 'text',
+              content: `✓ Executed by ${editorName}`,
+            },
+          };
+        }
+        return c;
+      });
+      if (!cellFound && source) {
+        notebook.cells.push({
+          id: cellId,
+          type: 'code',
+          source,
+          executionCount: 1,
+          output: output || {
+            type: 'text',
+            content: `✓ Executed by ${editorName}`,
+          },
+        });
+      }
+    }
+
+    notebook.last_edited_by = editorName;
+    notebook.last_edited_at = timestamp;
+    notebook.updated_at = timestamp;
+    notebookStore.set(id, notebook);
+
+    try {
+      const driver = getDriver();
+      if (typeof driver.getWorkspacePath === 'function') {
+        const wsPath = driver.getWorkspacePath(session.user_id, session.id);
+        if (fs.existsSync(wsPath)) {
+          fs.writeFileSync(path.join(wsPath, 'notebook.json'), JSON.stringify(notebook, null, 2), 'utf8');
+        }
+      }
+    } catch (e) {}
+
+    res.json({
+      status: 'ok',
+      last_edited_by: editorName,
+      last_edited_at: timestamp,
+      notebook,
+      cells: notebook.cells,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+const updateNotebook = saveNotebook;
+const runCode = executeCell;
+
 // Expose for router and reconciler use
 module.exports = {
   getProfiles,
   createSession,
   getSessions,
+  getActiveSession,
   getSession,
   pauseSession,
   resumeSession,
@@ -1187,4 +1662,9 @@ module.exports = {
   deleteSession,
   updateSession,
   restartSession,
+  getNotebook,
+  saveNotebook,
+  updateNotebook,
+  executeCell,
+  runCode,
 };

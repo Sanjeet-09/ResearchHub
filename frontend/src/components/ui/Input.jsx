@@ -15,7 +15,7 @@ export const Input = React.forwardRef(({
   return (
     <div className="w-full flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={inputId} className="text-xs font-medium text-text-2">
+        <label htmlFor={inputId} className="text-xs font-medium text-[#A1A1A1]">
           {label}
         </label>
       )}
@@ -23,17 +23,18 @@ export const Input = React.forwardRef(({
         ref={ref}
         id={inputId}
         className={cn(
-          'w-full h-9 bg-surface-2 border border-border rounded-[8px] px-3 text-sm text-text placeholder:text-text-3 transition-colors duration-150 focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2',
+          'w-full h-9 bg-[#171717] border border-[#242424] rounded-lg px-3 text-sm text-[#EDEDED] placeholder-[#6E6E6E] transition-colors duration-150 focus:border-[#EDEDED] focus:outline-none',
           mono && 'font-mono text-xs',
-          error && 'border-danger focus:border-danger focus-visible:outline-danger',
+          error && 'border-danger focus:border-danger',
           className
         )}
         {...props}
       />
       {error && <span className="text-xs text-danger">{error}</span>}
-      {hint && !error && <span className="text-xs text-text-3">{hint}</span>}
+      {hint && !error && <span className="text-xs text-[#6E6E6E]">{hint}</span>}
     </div>
   );
 });
 
 Input.displayName = 'Input';
+

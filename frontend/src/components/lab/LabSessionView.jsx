@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Badge, StatusDot } from '../ui';
+import { toast } from 'sonner';
 import { LabStopDialog } from './LabStopDialog';
 import { LabEditConfigModal } from './LabEditConfigModal';
 import { LabNotionEditor } from './LabNotionEditor';
@@ -27,6 +28,9 @@ export const LabSessionView = ({
   session: initialSession,
   onBack,
   onSessionUpdated,
+  currentUser,
+  isLead = false,
+  isCollaborativeNonOwner,
 }) => {
   const [session, setSession] = useState(initialSession);
   const [elapsedSeconds, setElapsedSeconds] = useState(
@@ -38,10 +42,25 @@ export const LabSessionView = ({
   const [exportMessage, setExportMessage] = useState(null);
   const [viewMode, setViewMode] = useState('notebook'); // Single tab default: 'notebook' | 'notion' | 'docker'
 
+  const isOwner = !currentUser || session?.user_id === currentUser?.id;
+  const isLeadOrAdmin = isLead || currentUser?.role === 'admin' || currentUser?.role === 'professor';
+  const isNonOwner = isCollaborativeNonOwner !== undefined ? isCollaborativeNonOwner : (!isOwner && !isLeadOrAdmin);
+
   // Sync session state from props
   useEffect(() => {
     setSession(initialSession);
   }, [initialSession]);
+
+  const handleOpenExternal = () => {
+    // Build valid URL with token for JupyterLab (session.url in cloud or host port fallback)
+    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+    const url = session?.url || (session?.port ? `http://${host}:${session.port}/lab?token=${session.token}` : null);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error("Container connection URL or port not available yet");
+    }
+  };
 
   // Monospace live runtime timer
   useEffect(() => {
@@ -175,7 +194,7 @@ export const LabSessionView = ({
             </button>
           )}
 
-          <div className="flex items-center gap-2.5 truncate">
+          <div className="flex items-center gap-2.5 truncate flex-wrap">
             <span className="font-semibold text-sm text-text truncate">{session.name}</span>
             <Badge
               variant={isAiml ? 'aiml' : 'neutral'}
@@ -183,6 +202,22 @@ export const LabSessionView = ({
             >
               {session.profile_name || session.profile_key}
             </Badge>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-950/60 text-emerald-300 border border-emerald-500/40">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Shared Project Notebook — Any project member can edit and run
+            </span>
+
+            {isNonOwner && (
+              <Badge
+                variant="neutral"
+                size="sm"
+                className="bg-purple-950/60 text-purple-300 border border-purple-500/40 flex items-center gap-1.5 px-2.5 py-0.5 text-[11px]"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                Session Owner: {session.user_name || 'Owner'}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -230,8 +265,8 @@ export const LabSessionView = ({
                 size="sm"
                 icon={Pause}
                 onClick={handlePause}
-                disabled={actionLoading}
-                title="Pause compute (saves files, stops billing)"
+                disabled={actionLoading || isNonOwner}
+                title={isNonOwner ? "Only the session owner or project lead can pause this session" : "Pause compute (saves files, stops billing)"}
               >
                 <span className="hidden sm:inline">Pause</span>
               </Button>
@@ -244,7 +279,8 @@ export const LabSessionView = ({
               size="sm"
               icon={Play}
               onClick={handleResume}
-              disabled={actionLoading}
+              disabled={actionLoading || isNonOwner}
+              title={isNonOwner ? "Only the session owner or project lead can resume this session" : "Resume compute"}
             >
               Resume
             </Button>
@@ -256,12 +292,23 @@ export const LabSessionView = ({
               size="sm"
               icon={Square}
               onClick={() => setIsStopDialogOpen(true)}
-              disabled={actionLoading}
-              title="Stop session and delete workspace permanently"
+              disabled={actionLoading || isNonOwner}
+              title={isNonOwner ? "Only the session owner or project lead can stop this session" : "Stop session and delete workspace permanently"}
             >
               <span className="hidden sm:inline">Stop</span>
             </Button>
           )}
+
+          {/* Open Tab External Launcher Button next to Pause & Stop */}
+          <button
+            type="button"
+            onClick={handleOpenExternal}
+            className="bg-[#171717] hover:bg-[#242424] text-[#EDEDED] border border-[#353535] px-3.5 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors cursor-pointer"
+            title="Open JupyterLab in a standalone tab"
+          >
+            <span>Open Tab</span>
+            <ExternalLink className="w-3.5 h-3.5 text-[#EDEDED]" />
+          </button>
 
           {(session.state === 'stopped' || session.state === 'failed') && (
             <>
@@ -271,6 +318,7 @@ export const LabSessionView = ({
                 icon={RotateCw}
                 onClick={handleRestart}
                 loading={actionLoading}
+                disabled={isNonOwner}
                 title="Restart container runtime"
               >
                 Restart
@@ -280,25 +328,12 @@ export const LabSessionView = ({
                 size="sm"
                 icon={Settings}
                 onClick={() => setIsEditConfigOpen(true)}
-                disabled={actionLoading}
+                disabled={actionLoading || isNonOwner}
                 title="Edit compute configuration"
               >
                 Edit Config
               </Button>
             </>
-          )}
-
-          {session.url && session.state === 'running' && (
-            <a
-              href={session.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border text-xs text-accent font-medium transition-colors"
-              title="Open JupyterLab in a standalone tab"
-            >
-              <span>Open Tab</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
           )}
         </div>
       </div>
@@ -369,10 +404,13 @@ export const LabSessionView = ({
         {viewMode === 'notebook' && (
           <div className="h-full w-full min-h-0 flex-1 overflow-y-auto">
             <LabPythonNotebook
+              session={session}
               projectId={session.project_id}
               sessionId={session.id}
               sessionName={session.name}
               profileKey={session.profile_key}
+              currentUser={currentUser}
+              isOwner={isOwner}
               onExportSuccess={(msg) => {
                 setExportMessage(msg);
                 setTimeout(() => setExportMessage(null), 5000);

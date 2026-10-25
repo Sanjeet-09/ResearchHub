@@ -8,6 +8,11 @@ pgdata/
 .recall_scratchpad.md
 ResearchHub_OS_SPEC.md
 docs/
-db/
+db/*
+!db/migrations/
+!db/seed.sql
 .lab-workspaces/
 ui.md
+*.sh 
+*.ps1
+*.txt

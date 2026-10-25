@@ -16,7 +16,7 @@ export const Textarea = React.forwardRef(({
   return (
     <div className="w-full flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={textareaId} className="text-xs font-medium text-text-2">
+        <label htmlFor={textareaId} className="text-xs font-medium text-[#A1A1A1]">
           {label}
         </label>
       )}
@@ -25,17 +25,18 @@ export const Textarea = React.forwardRef(({
         id={textareaId}
         rows={rows}
         className={cn(
-          'w-full bg-surface-2 border border-border rounded-[8px] p-3 text-sm text-text placeholder:text-text-3 transition-colors duration-150 focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] focus-visible:outline-offset-2 resize-y',
+          'w-full bg-[#171717] border border-[#242424] rounded-lg p-3 text-sm text-[#EDEDED] placeholder-[#6E6E6E] transition-colors duration-150 focus:border-[#EDEDED] focus:outline-none resize-y',
           mono && 'font-mono text-xs',
-          error && 'border-danger focus:border-danger focus-visible:outline-danger',
+          error && 'border-danger focus:border-danger',
           className
         )}
         {...props}
       />
       {error && <span className="text-xs text-danger">{error}</span>}
-      {hint && !error && <span className="text-xs text-text-3">{hint}</span>}
+      {hint && !error && <span className="text-xs text-[#6E6E6E]">{hint}</span>}
     </div>
   );
 });
 
 Textarea.displayName = 'Textarea';
+

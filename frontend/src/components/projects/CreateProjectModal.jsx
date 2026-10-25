@@ -49,7 +49,7 @@ export const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
     <Dialog isOpen={isOpen} onClose={onClose} title="Create Research Project" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="p-3 rounded-input bg-danger/10 border border-danger/20 text-danger text-xs">
+          <div className="p-3 rounded-lg bg-[#2D1315] border border-[#F87171]/20 text-[#F87171] text-xs">
             {error}
           </div>
         )}
@@ -91,16 +91,16 @@ export const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
             checked={allowStudentGpu}
             onChange={(e) => setAllowStudentGpu(e.target.checked)}
           />
-          <span className="text-[11px] text-txt-faint block ml-6">
+          <span className="text-[11px] text-[#A1A1A1] block ml-6 mt-0.5">
             Grants student project members access to launch GPU lab instances.
           </span>
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+        <div className="flex justify-end gap-3 pt-4 border-t border-[#242424]">
           <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={loading}>
+          <Button type="submit" variant="primary" disabled={loading} isLoading={loading}>
             {loading ? 'Creating...' : 'Create Project'}
           </Button>
         </div>

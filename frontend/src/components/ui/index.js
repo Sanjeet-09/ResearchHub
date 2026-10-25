@@ -22,3 +22,4 @@ export * from './PageHeader';
 export * from './CommandPalette';
 export * from './Toaster';
 export * from './IconChip';
+export * from './DropdownMenu';

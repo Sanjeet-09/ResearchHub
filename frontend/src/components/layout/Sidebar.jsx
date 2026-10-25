@@ -59,12 +59,14 @@ export const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         ],
       },
     ] : []),
-    {
-      group: 'Dev',
-      items: [
-        { label: 'Design System', path: '/design', icon: Palette, module: 'publications', color: 'text-module-publications', isDev: true },
-      ],
-    },
+    ...(import.meta.env.DEV ? [
+      {
+        group: 'Dev',
+        items: [
+          { label: 'Design System', path: '/design', icon: Palette, module: 'publications', color: 'text-module-publications', isDev: true },
+        ],
+      },
+    ] : []),
   ];
 
   return (

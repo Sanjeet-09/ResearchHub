@@ -25,6 +25,8 @@
     "dev:services": "concurrently -n gateway,auth,proj,exp,data,doc,pub,equip,act,notif,lab -c auto \"npm:dev:gateway\" \"npm:dev:auth\" \"npm:dev:project\" \"npm:dev:experiment\" \"npm:dev:dataset\" \"npm:dev:document\" \"npm:dev:publication\" \"npm:dev:equipment\" \"npm:dev:activity\" \"npm:dev:notification\" \"npm:dev:lab\"",
     "dev:all-services": "concurrently -n gateway,auth,proj,exp,data,doc,pub,equip,act,notif,lab -c auto \"npm:dev:gateway\" \"npm:dev:auth\" \"npm:dev:project\" \"npm:dev:experiment\" \"npm:dev:dataset\" \"npm:dev:document\" \"npm:dev:publication\" \"npm:dev:equipment\" \"npm:dev:activity\" \"npm:dev:notification\" \"npm:dev:lab\"",
     "db:setup": "node scripts/db-init.js",
+    "gcp:deploy": "powershell -ExecutionPolicy Bypass -File ./scripts/gcp-deploy.ps1",
+    "gcp:teardown": "powershell -ExecutionPolicy Bypass -File ./scripts/gcp-teardown.ps1",
     "test": "npm run test --workspaces --if-present"
   },
   "dependencies": {

@@ -14,6 +14,7 @@ import {
   ConfirmDialog,
   Avatar,
   AvatarStack,
+  EmptyState,
 } from '../components/ui';
 import {
   CheckCircle2,
@@ -31,6 +32,7 @@ import {
   Terminal,
   Users,
   FolderKanban,
+  MessageSquare,
 } from 'lucide-react';
 import { ExperimentsTab } from '../components/experiments/ExperimentsTab';
 import { DatasetsTab } from '../components/datasets/DatasetsTab';
@@ -39,6 +41,7 @@ import { PublicationsTab } from '../components/publications/PublicationsTab';
 import { TimelineTab } from '../components/timeline/TimelineTab';
 import { TeamActivityTab } from '../components/activity/TeamActivityTab';
 import { LabTab } from '../components/lab/LabTab';
+import { ProjectDiscussionsTab } from '../components/discussions/ProjectDiscussionsTab';
 import { usePresence } from '../hooks/usePresence';
 
 export const ProjectDetailPage = () => {
@@ -108,7 +111,7 @@ export const ProjectDetailPage = () => {
     }
   };
 
-  const isProfessor = currentUser?.role === 'professor';
+  const isProfessor = currentUser?.role === 'professor' || currentUser?.role === 'admin';
   const currentUserMember = project?.members?.find(m => m.user_id === currentUser?.id);
   const isLead = isProfessor || currentUserMember?.project_role === 'lead';
   const isMember = isLead || currentUserMember?.project_role === 'member';
@@ -265,6 +268,7 @@ export const ProjectDetailPage = () => {
     { id: 'datasets', label: 'Datasets', icon: Database, badge: project.datasets_count },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'publications', label: 'Publications', icon: BookOpen },
+    { id: 'discussions', label: 'Discussions', icon: MessageSquare },
     { id: 'timeline', label: 'Timeline', icon: CalendarClock },
     { id: 'lab', label: 'Testing Environment', icon: Terminal },
     { id: 'activity', label: 'Team Activity', icon: Users },
@@ -325,6 +329,14 @@ export const ProjectDetailPage = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0 self-start md:self-center">
+            <Button
+              variant={activeTab === 'discussions' ? 'primary' : 'secondary'}
+              size="sm"
+              icon={MessageSquare}
+              onClick={() => handleTabChange('discussions')}
+            >
+              Discussions
+            </Button>
             {isLead && (
               <Button variant="danger" size="sm" icon={Trash2} onClick={() => setIsDeleteConfirmOpen(true)}>
                 Delete project
@@ -504,12 +516,24 @@ export const ProjectDetailPage = () => {
         <PublicationsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
+      {activeTab === 'discussions' && (
+        <ProjectDiscussionsTab projectId={id} isMember={isMember} isLead={isLead} />
+      )}
+
       {activeTab === 'timeline' && (
         <TimelineTab projectId={id} />
       )}
 
       {activeTab === 'lab' && (
-        <LabTab projectId={id} isMember={isMember} allowStudentGpu={project.allow_student_gpu} />
+        isMember ? (
+          <LabTab projectId={id} isMember={isMember} isLead={isLead} allowStudentGpu={project.allow_student_gpu} />
+        ) : (
+          <EmptyState
+            icon={Terminal}
+            title="Testing Environment Restricted"
+            description="Testing environments require Member or Lead permissions in this project."
+          />
+        )
       )}
 
       {activeTab === 'activity' && (

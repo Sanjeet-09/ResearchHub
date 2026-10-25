@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Skeleton } from '../ui';
+import { Card, Button, Skeleton, EmptyState } from '../ui';
 import { LabConfigPicker } from './LabConfigPicker';
 import { LabProgressScreen } from './LabProgressScreen';
 import { LabSessionView } from './LabSessionView';
@@ -8,7 +8,7 @@ import { labApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, Terminal, AlertCircle } from 'lucide-react';
 
-export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
+export const LabTab = ({ projectId, isMember, isLead = false, allowStudentGpu = false }) => {
   const { user } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +19,7 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [currentSession, setCurrentSession] = useState(null);
   const [launchLoading, setLaunchLoading] = useState(false);
+  const hasAutoOpenedRef = React.useRef(false);
 
   useEffect(() => {
     fetchSessions();
@@ -31,10 +32,12 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
       const data = await labApi.getSessions({ projectId });
       setSessions(data || []);
 
-      // If user has a running or provisioning session, show it or banner
-      const active = (data || []).find((s) => s.state === 'running');
-      if (active && !currentSession && viewState === 'list') {
-        // Keep in list view, but user can open it with one click
+      // If an active session exists for this project (even if launched by a teammate), show the running session view!
+      const active = (data || []).find((s) => ['running', 'provisioning', 'paused'].includes(s.state));
+      if (active && !currentSession && !hasAutoOpenedRef.current) {
+        hasAutoOpenedRef.current = true;
+        setCurrentSession(active);
+        setViewState('session');
       }
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to load lab sessions');
@@ -50,6 +53,7 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
       const res = await labApi.createSession({ projectId, profileKey, name });
       setActiveSessionId(res.id);
       setViewState('progress');
+      hasAutoOpenedRef.current = true;
       fetchSessions();
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to launch session');
@@ -61,15 +65,18 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
   const handleProgressReady = (session) => {
     setCurrentSession(session);
     setViewState('session');
+    hasAutoOpenedRef.current = true;
     fetchSessions();
   };
 
   const handleSelectSession = (session) => {
     setCurrentSession(session);
     setViewState('session');
+    hasAutoOpenedRef.current = true;
   };
 
   const handleBackToList = () => {
+    hasAutoOpenedRef.current = true;
     setCurrentSession(null);
     setActiveSessionId(null);
     setViewState('list');
@@ -78,11 +85,17 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
 
   if (!isMember && user?.role !== 'professor' && user?.role !== 'admin') {
     return (
-      <Card className="p-8 text-center text-xs text-txt-muted">
-        Only project members can view and launch compute testing environments for this project.
-      </Card>
+      <EmptyState
+        icon={Terminal}
+        title="Testing Environment Restricted"
+        description="Testing environments require Member or Lead permissions in this project."
+      />
     );
   }
+
+  const isOwner = currentSession?.user_id === user?.id;
+  const isLeadOrAdmin = isLead || user?.role === 'admin' || user?.role === 'professor';
+  const isCollaborativeNonOwner = currentSession && !isOwner && !isLeadOrAdmin;
 
   // 1. Session View (Full interactive iframe & toolbar)
   if (viewState === 'session' && currentSession) {
@@ -94,6 +107,9 @@ export const LabTab = ({ projectId, isMember, allowStudentGpu = false }) => {
           setCurrentSession(updated);
           fetchSessions();
         }}
+        currentUser={user}
+        isLead={isLead}
+        isCollaborativeNonOwner={isCollaborativeNonOwner}
       />
     );
   }

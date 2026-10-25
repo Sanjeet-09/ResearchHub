@@ -43,6 +43,10 @@ const createMilestoneSchema = z.object({
 
 const updateMilestoneSchema = createMilestoneSchema.partial();
 
+const createMessageSchema = z.object({
+  message: z.string().trim().min(1, 'Message cannot be empty').max(5000, 'Message cannot exceed 5000 characters'),
+});
+
 /**
  * List projects accessible to user (or all if professor)
  */
@@ -491,6 +495,107 @@ const deleteMilestone = async (req, res, next) => {
   }
 };
 
+/**
+ * Get project discussion messages
+ * GET /projects/:pid/messages?after=<timestamp>
+ */
+const getProjectMessages = async (req, res, next) => {
+  try {
+    const projectId = req.params.pid || req.params.id || req.params.projectId;
+    const { after } = req.query;
+
+    let sql;
+    let params;
+
+    if (after) {
+      const parsedAfter = new Date(after);
+      if (!isNaN(parsedAfter.getTime())) {
+        sql = `
+          SELECT id, project_id, sender_id, sender_name, message, created_at
+          FROM project_messages
+          WHERE project_id = $1 AND created_at > $2
+          ORDER BY created_at ASC
+          LIMIT 100
+        `;
+        params = [projectId, parsedAfter.toISOString()];
+      } else {
+        sql = `
+          SELECT * FROM (
+            SELECT id, project_id, sender_id, sender_name, message, created_at
+            FROM project_messages
+            WHERE project_id = $1
+            ORDER BY created_at DESC
+            LIMIT 100
+          ) sub
+          ORDER BY created_at ASC
+        `;
+        params = [projectId];
+      }
+    } else {
+      sql = `
+        SELECT * FROM (
+          SELECT id, project_id, sender_id, sender_name, message, created_at
+          FROM project_messages
+          WHERE project_id = $1
+          ORDER BY created_at DESC
+          LIMIT 100
+        ) sub
+        ORDER BY created_at ASC
+      `;
+      params = [projectId];
+    }
+
+    const result = await query(sql, params);
+    res.json({ messages: result.rows });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Insert new project discussion message
+ * POST /projects/:pid/messages
+ */
+const createProjectMessage = async (req, res, next) => {
+  try {
+    const projectId = req.params.pid || req.params.id || req.params.projectId;
+    const parseResult = createMessageSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.errors[0]?.message || 'Invalid message payload';
+      return next(new ValidationError(firstError, parseResult.error.errors));
+    }
+
+    const { message } = parseResult.data;
+    const userId = req.user.id;
+
+    // Resolve sender full name
+    let senderName = req.user?.name ? decodeURIComponent(req.user.name).trim() : '';
+    if (!senderName) {
+      const userRes = await query('SELECT full_name FROM users WHERE id = $1', [userId]);
+      senderName = userRes.rows[0]?.full_name || 'Project Member';
+    }
+
+    const insertRes = await query(
+      `INSERT INTO project_messages (project_id, sender_id, sender_name, message)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, project_id, sender_id, sender_name, message, created_at`,
+      [projectId, userId, senderName, message]
+    );
+
+    const newMessage = insertRes.rows[0];
+
+    logger.info({
+      projectId,
+      senderId: userId,
+      messageId: newMessage.id,
+    }, 'Project discussion message posted');
+
+    res.status(201).json({ message: newMessage });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getProjects,
   getProjectById,
@@ -503,4 +608,6 @@ module.exports = {
   createMilestone,
   updateMilestone,
   deleteMilestone,
+  getProjectMessages,
+  createProjectMessage,
 };

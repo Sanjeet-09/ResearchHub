@@ -6,6 +6,7 @@ const {
   getProfiles,
   createSession,
   getSessions,
+  getActiveSession,
   getSession,
   pauseSession,
   resumeSession,
@@ -15,6 +16,11 @@ const {
   deleteSession,
   updateSession,
   restartSession,
+  getNotebook,
+  saveNotebook,
+  updateNotebook,
+  executeCell,
+  runCode,
 } = require('../controllers/labController');
 
 const router = express.Router();
@@ -33,6 +39,7 @@ router.get('/lab/profiles', authenticateToken, getProfiles);
 
 router.post('/lab/sessions', authenticateToken, createSession);
 router.get('/lab/sessions', authenticateToken, getSessions);
+router.get('/lab/active-session', authenticateToken, getActiveSession);
 router.get('/lab/sessions/:id', authenticateToken, getSession);
 router.delete('/lab/sessions/:id', authenticateToken, deleteSession);
 router.patch('/lab/sessions/:id', authenticateToken, updateSession);
@@ -42,5 +49,12 @@ router.post('/lab/sessions/:id/pause', authenticateToken, pauseSession);
 router.post('/lab/sessions/:id/resume', authenticateToken, resumeSession);
 router.post('/lab/sessions/:id/stop', authenticateToken, stopSession);
 router.post('/lab/sessions/:id/export', authenticateToken, exportSession);
+
+// ─ Collaborative Testing Notebook endpoints
+router.get('/lab/sessions/:id/notebook', authenticateToken, getNotebook);
+router.put('/lab/sessions/:id/notebook', authenticateToken, saveNotebook);
+router.post('/lab/sessions/:id/notebook', authenticateToken, saveNotebook);
+router.post('/lab/sessions/:id/execute', authenticateToken, executeCell);
+router.post('/lab/sessions/:id/run', authenticateToken, runCode);
 
 module.exports = router;

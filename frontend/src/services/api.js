@@ -1,8 +1,14 @@
 import axios from 'axios';
 
 const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (import.meta.env.PROD) {
+    return '/api';
   }
   const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
   return `http://${host}:5000/api`;
@@ -133,6 +139,16 @@ export const projectApi = {
     const res = await api.delete(`/projects/${projectId}/milestones/${milestoneId}`);
     return res.data;
   },
+
+  getMessages: async (projectId, params = {}) => {
+    const res = await api.get(`/projects/${projectId}/messages`, { params });
+    return res.data.messages;
+  },
+
+  sendMessage: async (projectId, message) => {
+    const res = await api.post(`/projects/${projectId}/messages`, { message });
+    return res.data.message;
+  },
 };
 
 // Experiment API endpoints
@@ -211,6 +227,11 @@ export const experimentApi = {
 // Dataset API endpoints
 export const datasetApi = {
   getDatasets: async (projectId) => {
+    const res = await api.get(`/projects/${projectId}/datasets`);
+    return res.data.datasets;
+  },
+
+  listByProject: async (projectId) => {
     const res = await api.get(`/projects/${projectId}/datasets`);
     return res.data.datasets;
   },
@@ -502,6 +523,16 @@ export const labApi = {
     return res.data.sessions;
   },
 
+  listSessions: async (params = {}) => {
+    const res = await api.get('/lab/sessions', { params });
+    return res.data.sessions;
+  },
+
+  getActiveSession: async (projectId) => {
+    const res = await api.get('/lab/active-session', { params: { projectId } });
+    return res.data.session;
+  },
+
   getSessionById: async (id) => {
     const res = await api.get(`/lab/sessions/${id}`);
     return res.data.session;
@@ -540,6 +571,21 @@ export const labApi = {
   restartSession: async (id, data = {}) => {
     const res = await api.post(`/lab/sessions/${id}/restart`, data);
     return res.data.session;
+  },
+
+  getNotebook: async (id) => {
+    const res = await api.get(`/lab/sessions/${id}/notebook`);
+    return res.data;
+  },
+
+  saveNotebook: async (id, data) => {
+    const res = await api.put(`/lab/sessions/${id}/notebook`, data);
+    return res.data;
+  },
+
+  executeCell: async (id, data) => {
+    const res = await api.post(`/lab/sessions/${id}/execute`, data);
+    return res.data;
   },
 };
 

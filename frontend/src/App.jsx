@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from './components/ui';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, RoleRoute } from './components/auth/ProtectedRoute';
@@ -14,12 +15,23 @@ import { EquipmentPage } from './pages/EquipmentPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { DesignSystemPage } from './pages/DesignSystemPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { LabPage } from './pages/LabPage';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AuthProvider>
         <Routes>
           {/* Public Auth Routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -37,23 +49,26 @@ export default function App() {
             }
           />
 
-          <Route
-            path="/design"
-            element={
-              <ProtectedRoute>
-                <AppShell>
-                  <DesignSystemPage />
-                </AppShell>
-              </ProtectedRoute>
-            }
-          />
+          {/* Dev-only Design System Showcase */}
+          {import.meta.env.DEV && (
+            <Route
+              path="/design"
+              element={
+                <ProtectedRoute>
+                  <AppShell>
+                    <DesignSystemPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+          )}
 
           <Route
             path="/settings"
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <DesignSystemPage />
+                  <SettingsPage />
                 </AppShell>
               </ProtectedRoute>
             }
@@ -146,5 +161,7 @@ export default function App() {
         <Toaster />
       </AuthProvider>
     </BrowserRouter>
+    </QueryClientProvider>
   );
 }
+

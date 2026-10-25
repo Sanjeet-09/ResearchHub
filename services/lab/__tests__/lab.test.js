@@ -555,4 +555,120 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
       expect(res.body.status).toBe('ok');
     });
   });
+
+  // 12. Collaborative Testing Notebook (GET/PUT /lab/sessions/:id/notebook & POST /lab/sessions/:id/execute)
+  describe('Collaborative Testing Notebook & Project-Level Authorization', () => {
+    const mockSession = {
+      id: SESSION_ID,
+      user_id: studentId,
+      project_id: PROJ_ID,
+      name: 'Shared Lab Session',
+      state: 'running',
+      user_name: 'Alex Chen',
+    };
+
+    it('rejects unauthenticated request to get notebook with 401', async () => {
+      const res = await request(app).get(`/lab/sessions/${SESSION_ID}/notebook`);
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 404 for nonexistent session notebook', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .get(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('rejects non-member user from viewing notebook with 403', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [mockSession] }) // session
+        .mockResolvedValueOnce({ rows: [] }); // project_members (not a member)
+
+      const res = await request(app)
+        .get(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${otherStudentToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('allows session owner to get notebook state', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [mockSession] });
+
+      const res = await request(app)
+        .get(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.notebook).toBeDefined();
+      expect(Array.isArray(res.body.notebook.cells)).toBe(true);
+      expect(res.body.cells.length).toBeGreaterThan(0);
+    });
+
+    it('allows project collaborator (member role) to get notebook state', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [mockSession] }) // session
+        .mockResolvedValueOnce({ rows: [{ project_role: 'member' }] }); // project member
+
+      const res = await request(app)
+        .get(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${otherStudentToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.notebook).toBeDefined();
+      expect(res.body.notebook.cells).toBeDefined();
+    });
+
+    it('allows project member to save notebook and stamps last_edited_by', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [mockSession] }) // session
+        .mockResolvedValueOnce({ rows: [{ project_role: 'member' }] }); // project member
+
+      const updatedCells = [
+        { id: 'c-1', type: 'code', source: 'print("Collaborative hello")', executionCount: 1 },
+      ];
+
+      const res = await request(app)
+        .put(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${otherStudentToken}`)
+        .send({ cells: updatedCells });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(res.body.last_edited_by).toBe('Other Student');
+      expect(res.body.last_edited_at).toBeDefined();
+      expect(res.body.cells[0].source).toBe('print("Collaborative hello")');
+    });
+
+    it('allows project member to execute cell and updates notebook state', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [mockSession] }) // session
+        .mockResolvedValueOnce({ rows: [{ project_role: 'member' }] }); // project member
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/execute`)
+        .set('Authorization', `Bearer ${otherStudentToken}`)
+        .send({
+          cellId: 'c-1',
+          source: 'print("Executed by teammate")',
+          output: { type: 'text', content: 'Executed by teammate output' },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(res.body.last_edited_by).toBe('Other Student');
+      expect(res.body.last_edited_at).toBeDefined();
+      expect(res.body.cells.find((c) => c.id === 'c-1').output.content).toBe('Executed by teammate output');
+    });
+
+    it('allows professor role to bypass project checks and save notebook', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [mockSession] }); // session
+
+      const res = await request(app)
+        .put(`/lab/sessions/${SESSION_ID}/notebook`)
+        .set('Authorization', `Bearer ${profToken}`)
+        .send({ cells: [{ id: 'c-prof', type: 'code', source: 'print("Prof")', executionCount: 1 }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.last_edited_by).toBe('Prof Vance');
+    });
+  });
 });

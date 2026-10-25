@@ -11,7 +11,18 @@ const activeServers = new Map();
 /**
  * Generates an interactive JupyterLab Dark-themed web application HTML page.
  */
-function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNotebookName = 'analysis.ipynb' }) {
+function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNotebookName = 'analysis.ipynb', workspaceDir }) {
+  let datasetFiles = ['data.csv'];
+  if (workspaceDir) {
+    try {
+      const dsDir = path.join(workspaceDir, 'datasets');
+      if (fs.existsSync(dsDir)) {
+        const found = fs.readdirSync(dsDir).filter(f => !f.startsWith('.'));
+        if (found.length > 0) datasetFiles = found;
+      }
+    } catch (e) {}
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -85,7 +96,7 @@ function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNoteboo
     
     /* Left Sidebar: File Browser */
     .sidebar {
-      width: 220px;
+      width: 230px;
       background: var(--surface);
       border-right: 1px solid var(--border);
       display: flex;
@@ -177,6 +188,37 @@ function getJupyterLabHtml({ sessionId, profileKey, jupyterToken, initialNoteboo
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
           <span id="currentFileName">${initialNotebookName}</span>
         </div>
+
+        <!-- Collapsible datasets/ folder listing all project datasets -->
+        <div style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span>📁</span>
+              <span>datasets/</span>
+            </div>
+            <span style="font-size: 10px; background: var(--surface-3); padding: 1px 6px; border-radius: 4px; color: var(--text);">${datasetFiles.length}</span>
+          </div>
+
+          <div style="padding: 2px 0;">
+            ${datasetFiles.map(file => `
+              <div class="file-item" style="justify-content: space-between; padding: 4px 12px;" title="datasets/${file}">
+                <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
+                  <svg fill="none" stroke="#7C83FF" viewBox="0 0 24 24" style="width: 13px; height: 13px; flex-shrink: 0;"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                  <span style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file}</span>
+                </div>
+                <button
+                  type="button"
+                  class="btn"
+                  style="padding: 1px 6px; font-size: 10px; flex-shrink: 0;"
+                  onclick="copyPath('datasets/${file}')"
+                  title="Click to copy relative path for pandas/code"
+                >
+                  Copy Path
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -231,23 +273,25 @@ Workspace successfully mounted at /workspace
 ✓ Kernel execution completed</div>
         </div>
 
-        <!-- Cell 2 -->
+        <!-- Cell 2: Colab-Style Dataset Loading -->
         <div class="cell" id="cell-2">
           <div class="cell-header">
             <span>[ 2 ] Code</span>
             <span>Python 3</span>
           </div>
-          <div class="cell-input" contenteditable="true" spellcheck="false"># Sample Data Analysis
-df = pd.DataFrame({
-    'experiment_id': ['exp-001', 'exp-002', 'exp-003'],
-    'accuracy': [0.924, 0.958, 0.971],
-    'loss': [0.142, 0.089, 0.045]
-})
+          <div class="cell-input" contenteditable="true" spellcheck="false"># Colab-Style Dataset Import
+import pandas as pd
+
+# Load dataset directly from /workspace/datasets
+df = pd.read_csv('datasets/data.csv')
+print("Successfully loaded datasets/data.csv:")
 print(df.to_string(index=False))</div>
-          <div class="cell-output output-success">experiment_id  accuracy  loss
-      exp-001     0.924 0.142
-      exp-002     0.958 0.089
-      exp-003     0.971 0.045</div>
+          <div class="cell-output output-success">Successfully loaded datasets/data.csv:
+sample_id  concentration_ug_ml  absorbance_nm  status
+    S-101                 4.52          0.312    Pass
+    S-102                 8.14          0.598    Pass
+    S-103                12.80          0.942  Review
+    S-104                 1.95          0.145    Pass</div>
         </div>
       </div>
     </div>
@@ -322,6 +366,16 @@ print("Cell \${cellCount} executed")</div>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: '${initialNotebookName}', content: notebookData })
       }).catch(() => {});
+    }
+
+    function copyPath(relPath) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(relPath);
+      }
+      const label = document.getElementById('kernelLabel');
+      const prev = label.innerText;
+      label.innerText = 'Copied path: ' + relPath;
+      setTimeout(() => { label.innerText = prev; }, 2000);
     }
 
     // Auto-save initial notebook on load
@@ -427,7 +481,7 @@ function startEmbeddedServer({ sessionId, port, jupyterToken, workspaceDir, prof
 
       // 4. Default: JupyterLab UI at / or /lab
       if (pathname === '/' || pathname === '/lab' || pathname.startsWith('/lab')) {
-        const html = getJupyterLabHtml({ sessionId, profileKey, jupyterToken });
+        const html = getJupyterLabHtml({ sessionId, profileKey, jupyterToken, workspaceDir });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         return res.end(html);
       }

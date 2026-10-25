@@ -28,19 +28,19 @@ export const CommandPalette = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-70 flex items-start justify-center pt-24 p-4">
-      <div className="fixed inset-0 bg-black/70" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 p-4">
+      <div className="fixed inset-0 bg-black/75 backdrop-blur-[2px]" onClick={onClose} />
       
-      <div className="relative w-full max-w-xl bg-surface-1 border border-border-strong rounded-[12px] shadow-floating overflow-hidden z-10 animate-in fade-in slide-in-from-top-2 duration-150">
+      <div className="relative w-full max-w-xl bg-[#111111] border border-[#242424] shadow-2xl shadow-black rounded-xl text-[#EDEDED] overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
         <Command className="w-full">
-          <div className="flex items-center border-b border-border px-4">
-            <Search className="w-4 h-4 text-text-3 shrink-0 mr-3 stroke-[1.75]" />
+          <div className="flex items-center border-b border-[#242424] px-4">
+            <Search className="w-4 h-4 text-[#6E6E6E] shrink-0 mr-3 stroke-[1.75]" />
             <Command.Input
               placeholder="Search projects, experiments, datasets, lab..."
-              className="w-full bg-transparent py-3.5 text-sm text-text placeholder:text-text-3 outline-none"
+              className="w-full bg-transparent py-3.5 text-sm text-[#EDEDED] placeholder-[#6E6E6E] outline-none"
               autoFocus
             />
-            <button onClick={onClose} className="p-1 text-text-3 hover:text-text rounded-[6px] hover:bg-surface-2 transition-colors">
+            <button onClick={onClose} className="p-1 text-[#6E6E6E] hover:text-[#EDEDED] rounded-lg hover:bg-[#171717] transition-colors">
               <X className="w-4 h-4 stroke-[1.75]" />
             </button>
           </div>
@@ -79,13 +79,15 @@ export const CommandPalette = ({ isOpen, onClose }) => {
                 <Terminal className="w-4 h-4 text-text-2 stroke-[1.75]" />
                 <span>Testing Environment (Lab)</span>
               </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelect('/design')}
-                className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
-              >
-                <FlaskConical className="w-4 h-4 text-text-2 stroke-[1.75]" />
-                <span>Design System Showcase (/design)</span>
-              </Command.Item>
+              {import.meta.env.DEV && (
+                <Command.Item
+                  onSelect={() => handleSelect('/design')}
+                  className="flex items-center gap-3 px-3 py-2 text-xs text-text rounded-[8px] hover:bg-surface-2 cursor-pointer transition-colors"
+                >
+                  <FlaskConical className="w-4 h-4 text-text-2 stroke-[1.75]" />
+                  <span>Design System Showcase (/design)</span>
+                </Command.Item>
+              )}
             </Command.Group>
           </Command.List>
         </Command>
