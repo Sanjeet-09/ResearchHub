@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   RotateCw,
   AlertCircle,
+  AlertTriangle,
   Clock,
   Sparkles,
   Cpu,
@@ -40,23 +41,79 @@ export const LabSessionView = ({
   const [isEditConfigOpen, setIsEditConfigOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [exportMessage, setExportMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [viewMode, setViewMode] = useState('notebook'); // Single tab default: 'notebook' | 'notion' | 'docker'
 
   const isOwner = !currentUser || session?.user_id === currentUser?.id;
   const isLeadOrAdmin = isLead || currentUser?.role === 'admin' || currentUser?.role === 'professor';
   const isNonOwner = isCollaborativeNonOwner !== undefined ? isCollaborativeNonOwner : (!isOwner && !isLeadOrAdmin);
 
+  // Container readiness and startup progress percentage (0–100)
+  const sessionStatus = (session?.state || session?.status || '').toUpperCase();
+  const isRunning = sessionStatus === 'RUNNING' && (session?.ready === undefined || session?.ready === true);
+  const [containerReady, setContainerReady] = useState(isRunning);
+  const [startupProgress, setStartupProgress] = useState(isRunning ? 100 : 0);
+
   // Sync session state from props
   useEffect(() => {
     setSession(initialSession);
   }, [initialSession]);
 
+  // Keep containerReady in sync with session status
+  useEffect(() => {
+    const statusUpper = (session?.state || session?.status || '').toUpperCase();
+    const isSessionReady = session?.ready === undefined || session?.ready === true;
+    if (statusUpper === 'RUNNING' && isSessionReady) {
+      setContainerReady(true);
+      setStartupProgress(100);
+    } else if (statusUpper === 'PROVISIONING' || statusUpper === 'STARTING') {
+      setContainerReady(false);
+    } else {
+      setContainerReady(false);
+    }
+  }, [session?.state, session?.status, session?.ready]);
+
+  // Periodically increment startup progress over simulated 60s window until port 8888 probe reports RUNNING
+  useEffect(() => {
+    const statusUpper = (session?.state || session?.status || '').toUpperCase();
+    if (containerReady || (statusUpper !== 'PROVISIONING' && statusUpper !== 'STARTING')) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setStartupProgress((prev) => {
+        if (prev >= 99) return 99;
+        // Progress smoothly towards 99%
+        const step = prev < 30 ? 2 : prev < 80 ? 1 : Math.random() > 0.4 ? 1 : 0;
+        return Math.min(99, prev + step);
+      });
+    }, 600);
+
+    return () => clearInterval(interval);
+  }, [containerReady, session?.state, session?.status]);
+
+  // Contextual status message per percentage window
+  const getStartupMessage = (progress) => {
+    if (progress <= 30) {
+      return "Allocating Compute Engine VM...";
+    } else if (progress <= 80) {
+      return "Pulling JupyterLab container image & dependencies...";
+    } else if (progress < 100) {
+      return "Mounting project workspace & starting kernel...";
+    }
+    return "Container workspace mounted & ready!";
+  };
+
   const handleOpenExternal = () => {
-    // Build valid URL with token for JupyterLab (session.url in cloud or host port fallback)
-    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-    const url = session?.url || (session?.port ? `http://${host}:${session.port}/lab?token=${session.token}` : null);
-    if (url) {
-      window.open(url, '_blank', 'noopener,noreferrer');
+    // Route through the API Gateway relative proxy to avoid ERR_CONNECTION_REFUSED & Mixed Content
+    const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
+    const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
+    const proxyBase = session?.id
+      ? `/api/lab/sessions/${session.id}/proxy/lab/${tokenQuery}`
+      : session?.url;
+
+    if (proxyBase) {
+      window.open(proxyBase, '_blank', 'noopener,noreferrer');
     } else {
       toast.error("Container connection URL or port not available yet");
     }
@@ -81,7 +138,8 @@ export const LabSessionView = ({
 
   // Periodic status poll (every 3s if in transitional state)
   useEffect(() => {
-    if (!['provisioning', 'pausing', 'resuming', 'stopping'].includes(session?.state)) {
+    const currentState = (session?.state || session?.status || '').toLowerCase();
+    if (!['provisioning', 'starting', 'pausing', 'resuming', 'stopping'].includes(currentState)) {
       return;
     }
 
@@ -89,6 +147,11 @@ export const LabSessionView = ({
       try {
         const fresh = await labApi.getSessionById(session.id);
         setSession(fresh);
+        const isFreshReady = fresh?.ready === undefined || fresh?.ready === true;
+        if (fresh && (fresh.state === 'running' || (fresh.status && fresh.status.toUpperCase() === 'RUNNING')) && isFreshReady) {
+          setContainerReady(true);
+          setStartupProgress(100);
+        }
         if (onSessionUpdated) onSessionUpdated(fresh);
       } catch (err) {
         // Ignored
@@ -97,7 +160,7 @@ export const LabSessionView = ({
 
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [session?.id, session?.state]);
+  }, [session?.id, session?.state, session?.status]);
 
   const formatTimer = (totalSec) => {
     const hrs = Math.floor(totalSec / 3600);
@@ -108,13 +171,15 @@ export const LabSessionView = ({
 
   const handlePause = async () => {
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.pauseSession(session.id);
       const updated = await labApi.getSessionById(session.id);
       setSession(updated);
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to pause session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to pause session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -122,13 +187,15 @@ export const LabSessionView = ({
 
   const handleResume = async () => {
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.resumeSession(session.id);
       const updated = await labApi.getSessionById(session.id);
       setSession(updated);
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to resume session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to resume session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -136,6 +203,7 @@ export const LabSessionView = ({
 
   const handleStopConfirm = async ({ exportNotebooks }) => {
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.stopSession(session.id, exportNotebooks);
       setIsStopDialogOpen(false);
@@ -143,7 +211,8 @@ export const LabSessionView = ({
       setSession(updated);
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to stop session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to stop session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -151,13 +220,15 @@ export const LabSessionView = ({
 
   const handleExportNotebooks = async () => {
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       setExportMessage(null);
       const res = await labApi.exportNotebooks(session.id);
       setExportMessage(res.message || 'Notebooks exported to Documents tab successfully');
       setTimeout(() => setExportMessage(null), 5000);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Export failed');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Export failed';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -165,12 +236,50 @@ export const LabSessionView = ({
 
   const handleRestart = async () => {
     try {
+      setErrorMessage(null);
       setActionLoading(true);
+      // Immediately set the session UI state to PROVISIONING / STARTING with progress bar active
+      setSession((prev) => ({
+        ...prev,
+        state: 'provisioning',
+        status: 'provisioning',
+      }));
+      setContainerReady(false);
+      setStartupProgress(5);
+      setViewMode('docker');
+
       const res = await labApi.restartSession(session.id);
-      setSession(res);
-      if (onSessionUpdated) onSessionUpdated(res);
+      const updatedSession = res?.session || res;
+      setSession(updatedSession);
+      if (onSessionUpdated) onSessionUpdated(updatedSession);
+
+      // Begin polling GET /api/lab/sessions/:id/status until the new VM responds on port 8888 and transitions to RUNNING
+      const pollInterval = setInterval(async () => {
+        try {
+          const fresh = await labApi.getSessionStatus(session.id).catch(() => labApi.getSessionById(session.id));
+          if (!fresh) return;
+          const freshState = (fresh.state || fresh.status || '').toUpperCase();
+          setSession(fresh);
+          if (onSessionUpdated) onSessionUpdated(fresh);
+          if (freshState === 'RUNNING' || fresh.ready) {
+            setContainerReady(true);
+            setStartupProgress(100);
+            clearInterval(pollInterval);
+          } else if (freshState === 'FAILED' || freshState === 'STOPPED') {
+            clearInterval(pollInterval);
+            if (fresh.last_error) {
+              setErrorMessage(fresh.last_error);
+            }
+          }
+        } catch (_) {}
+      }, 2000);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to restart session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to restart session';
+      setErrorMessage(msg);
+      try {
+        const current = await labApi.getSessionById(session.id);
+        if (current) setSession(current);
+      } catch (_) {}
     } finally {
       setActionLoading(false);
     }
@@ -367,7 +476,7 @@ export const LabSessionView = ({
             <span>Research Notes</span>
           </button>
 
-          {session.url && session.state === 'running' && (
+          {(session.url || session.id) && !['stopped', 'failed'].includes((session.state || session.status || '').toLowerCase()) && (
             <button
               onClick={() => setViewMode('docker')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-[6px] font-medium transition-colors ${
@@ -379,6 +488,9 @@ export const LabSessionView = ({
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Docker JupyterLab</span>
+              {!containerReady && (sessionStatus === 'PROVISIONING' || sessionStatus === 'STARTING') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              )}
             </button>
           )}
         </div>
@@ -394,6 +506,19 @@ export const LabSessionView = ({
         <div className="px-4 py-2 bg-success/10 border-b border-success/30 text-xs text-success flex items-center justify-between">
           <span>{exportMessage}</span>
           <button onClick={() => setExportMessage(null)} className="text-success hover:underline font-medium">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Inline error banner if active */}
+      {errorMessage && (
+        <div className="px-4 py-2.5 bg-danger/10 border-b border-danger/30 text-xs text-danger flex items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span className="font-medium">{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="text-danger hover:underline font-semibold flex-shrink-0 cursor-pointer">
             Dismiss
           </button>
         </div>
@@ -434,14 +559,110 @@ export const LabSessionView = ({
         )}
 
         {viewMode === 'docker' && (
-          <div className="h-full w-full min-h-0 flex-1 flex flex-col">
-            {session.state === 'running' && session.url ? (
-              <iframe
-                src={session.url}
-                title={`JupyterLab - ${session.name}`}
-                className="w-full h-full flex-1 min-h-0 border-0 bg-bg block"
-                allow="clipboard-read; clipboard-write; fullscreen"
-              />
+          <div className="h-full w-full min-h-0 flex-1 flex flex-col relative">
+            {/* Prevent Black Screen Iframe Render: do NOT mount iframe while containerReady is false */}
+            {containerReady && (session.id || session.url) ? (() => {
+              const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
+              const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
+              const proxyBase = session?.id
+                ? `/api/lab/sessions/${session.id}/proxy/lab/${tokenQuery}`
+                : session.url;
+
+              return (
+                <iframe
+                  src={proxyBase}
+                  title={`JupyterLab - ${session.name}`}
+                  className="w-full h-full flex-1 min-h-0 border-0 bg-bg block"
+                  allow="clipboard-read; clipboard-write; fullscreen"
+                />
+              );
+            })() : (!containerReady && (sessionStatus === 'PROVISIONING' || sessionStatus === 'STARTING' || sessionStatus === 'RUNNING' || !sessionStatus)) ? (
+              /* Loading overlay over the tab with progress bar and contextual status messages */
+              <div className="flex flex-col items-center justify-center h-full w-full p-8 text-center bg-bg relative overflow-hidden select-none">
+                {/* Ambient glow backgrounds */}
+                <div className="absolute w-[450px] h-[450px] rounded-full bg-primary/10 blur-3xl pointer-events-none -top-16 -left-16" />
+                <div className="absolute w-[450px] h-[450px] rounded-full bg-emerald-500/10 blur-3xl pointer-events-none -bottom-16 -right-16" />
+
+                <div className="relative z-10 max-w-lg w-full space-y-6 bg-surface-1/95 border border-border p-8 rounded-2xl shadow-floating backdrop-blur-md">
+                  {/* Container initialization spinner graphic */}
+                  <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border-2 border-border-strong/40" />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-emerald-400 animate-spin" />
+                    <div className="w-12 h-12 rounded-xl bg-surface-2 border border-border flex items-center justify-center shadow-inner">
+                      <Cpu className="w-6 h-6 text-primary stroke-[1.75]" />
+                    </div>
+                  </div>
+
+                  {/* Title & Contextual Message */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <h3 className="text-base font-semibold text-text tracking-tight">
+                        Initializing Docker JupyterLab
+                      </h3>
+                    </div>
+                    <p className="text-xs text-emerald-400 font-medium transition-all duration-300 min-h-[1.25rem]">
+                      {getStartupMessage(startupProgress)}
+                    </p>
+                  </div>
+
+                  {/* Progress Bar & Percentage */}
+                  <div className="space-y-2 text-left">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-text-3">Startup Initialization</span>
+                      <span className="text-text font-bold tabular-nums text-sm">{startupProgress}%</span>
+                    </div>
+
+                    <div className="w-full h-3 rounded-full bg-surface-2 border border-border overflow-hidden p-0.5">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-primary via-blue-500 to-emerald-400 transition-all duration-300 ease-out shadow-sm"
+                        style={{ width: `${startupProgress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Stepper Phases Indicator */}
+                  <div className="grid grid-cols-3 gap-2 pt-2 text-[11px] font-mono">
+                    <div className={`p-2.5 rounded-lg border text-center transition-all ${
+                      startupProgress <= 30
+                        ? 'bg-primary/10 border-primary/50 text-primary font-semibold shadow-sm'
+                        : startupProgress > 30
+                        ? 'bg-surface-2/60 border-border text-text-3'
+                        : 'bg-surface-2/30 border-border/40 text-text-3/60'
+                    }`}>
+                      <div className="text-[10px] uppercase tracking-wider text-text-3/80">0%–30%</div>
+                      <div className="mt-0.5">VM Allocate</div>
+                    </div>
+                    <div className={`p-2.5 rounded-lg border text-center transition-all ${
+                      startupProgress > 30 && startupProgress <= 80
+                        ? 'bg-primary/10 border-primary/50 text-primary font-semibold shadow-sm'
+                        : startupProgress > 80
+                        ? 'bg-surface-2/60 border-border text-text-3'
+                        : 'bg-surface-2/30 border-border/40 text-text-3/60'
+                    }`}>
+                      <div className="text-[10px] uppercase tracking-wider text-text-3/80">30%–80%</div>
+                      <div className="mt-0.5">Image Pull</div>
+                    </div>
+                    <div className={`p-2.5 rounded-lg border text-center transition-all ${
+                      startupProgress > 80 && startupProgress < 100
+                        ? 'bg-primary/10 border-primary/50 text-primary font-semibold shadow-sm'
+                        : startupProgress === 100
+                        ? 'bg-surface-2/60 border-border text-text-3'
+                        : 'bg-surface-2/30 border-border/40 text-text-3/60'
+                    }`}>
+                      <div className="text-[10px] uppercase tracking-wider text-text-3/80">80%–99%</div>
+                      <div className="mt-0.5">Mount Workspace</div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-text-3 pt-1 border-t border-border flex items-center justify-between">
+                    <span>Target: port 8888</span>
+                    <span className="font-mono">
+                      {startupProgress === 100 ? 'Listening (HTTP 200)' : 'Awaiting readiness probe...'}
+                    </span>
+                  </div>
+                </div>
+              </div>
             ) : session.state === 'paused' ? (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center space-y-4">
                 <div className="w-16 h-16 rounded-full bg-warning/10 border border-warning/30 flex items-center justify-center text-warning">

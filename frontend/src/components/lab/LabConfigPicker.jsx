@@ -189,7 +189,7 @@ export const LabConfigPicker = ({
           <h3 className="text-xs font-semibold text-text flex items-center gap-1.5">
             AI / ML
           </h3>
-          <span className="text-[11px] text-text-3">NVIDIA GPU · PyTorch CUDA · HuggingFace</span>
+          <span className="text-[11px] text-text-3">Intel AMX / AVX-512 · PyTorch · HuggingFace</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -233,19 +233,17 @@ export const LabConfigPicker = ({
 
                   {/* Resource Chips in Mono */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {p.gpu_type && (
-                      <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text flex items-center gap-1">
-                        <Zap className="w-3 h-3 stroke-[1.75]" />
-                        {p.gpu_type}
-                      </span>
-                    )}
+                    <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text flex items-center gap-1">
+                      <Zap className="w-3 h-3 stroke-[1.75]" />
+                      Intel AMX / AVX-512 (High Compute)
+                    </span>
                     <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
                       <Cpu className="w-3 h-3 text-text-3 stroke-[1.75]" />
-                      {p.cpu}
+                      {p.cpu || (p.key === 'dl-gpu-large' || p.key === 'ai-ml-deep-learning' ? '8 vCPU' : '4 vCPU')}
                     </span>
                     <span className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[11px] font-mono text-text-2 flex items-center gap-1">
                       <HardDrive className="w-3 h-3 text-text-3 stroke-[1.75]" />
-                      {p.memory_gb} GiB RAM
+                      {p.memory_gb || (p.key === 'dl-gpu-large' || p.key === 'ai-ml-deep-learning' ? 32 : 16)} GiB RAM
                     </span>
                   </div>
 

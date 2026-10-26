@@ -14,15 +14,34 @@ const PUBLIC_PATHS = [
 ];
 
 const gatewayAuthMiddleware = (req, res, next) => {
-  // 1. Allow public endpoints without authentication
-  const currentPath = req.path;
+  // 1. Allow public endpoints and JupyterLab proxy without Bearer token
+  const currentPath = req.path || '';
   const originalPath = req.originalUrl ? req.originalUrl.split('?')[0] : '';
 
   const isPublic = PUBLIC_PATHS.some(
     publicPath => currentPath === publicPath || originalPath === publicPath
   );
 
-  if (isPublic) {
+  const isLabProxy = currentPath.includes('/proxy') || originalPath.includes('/proxy');
+
+  if (isPublic || isLabProxy) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = {
+          id: decoded.sub,
+          role: decoded.role,
+          name: decoded.name || '',
+        };
+        req.headers['x-user-id'] = decoded.sub;
+        req.headers['x-user-role'] = decoded.role;
+        req.headers['x-user-name'] = encodeURIComponent(decoded.name || '');
+      } catch (_) {}
+    }
     return next();
   }
 

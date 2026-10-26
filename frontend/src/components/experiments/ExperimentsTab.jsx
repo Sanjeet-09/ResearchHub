@@ -184,33 +184,43 @@ export const ExperimentsTab = ({ projectId, isMember, isLead }) => {
 
     try {
       setIsUploading(true);
-      setUploadProgress(10);
+      setUploadProgress(20);
 
-      // 1. Get signed upload URL
-      const { uploadUrl, gcsPath } = await experimentApi.getUploadUrl(projectId, selectedExp.id, {
-        fileName: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-      });
+      let fileRecord;
+      try {
+        fileRecord = await experimentApi.uploadFile(projectId, selectedExp.id, file, (progress) => {
+          setUploadProgress(20 + Math.round(progress * 0.75));
+        });
+      } catch (directErr) {
+        // Fallback to signed upload URL flow
+        const { uploadUrl, gcsPath } = await experimentApi.getUploadUrl(projectId, selectedExp.id, {
+          fileName: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+        });
 
-      setUploadProgress(40);
+        await experimentApi.uploadFileBinary(uploadUrl, file, (progress) => {
+          setUploadProgress(40 + Math.round(progress * 0.5));
+        });
 
-      // 2. Upload file binary
-      await experimentApi.uploadFileBinary(uploadUrl, file, (progress) => {
-        setUploadProgress(40 + Math.round(progress * 0.5));
-      });
+        fileRecord = await experimentApi.confirmFileUpload(projectId, selectedExp.id, {
+          fileName: file.name,
+          gcsPath,
+          mimeType: file.type,
+          sizeBytes: file.size,
+        });
+      }
 
-      setUploadProgress(90);
-
-      // 3. Confirm file metadata in DB
-      const fileRecord = await experimentApi.confirmFileUpload(projectId, selectedExp.id, {
-        fileName: file.name,
-        gcsPath,
-        mimeType: file.type,
-        sizeBytes: file.size,
-      });
-
-      setDetailFiles((prev) => [...prev, fileRecord]);
+      if (fileRecord) {
+        setDetailFiles((prev) => [...prev, fileRecord]);
+        setExperiments((prev) =>
+          prev.map((exp) =>
+            exp.id === selectedExp.id
+              ? { ...exp, file_count: (parseInt(exp.file_count || 0, 10) + 1).toString() }
+              : exp
+          )
+        );
+      }
       setUploadProgress(100);
     } catch (err) {
       alert(err.response?.data?.error?.message || 'Failed to upload file attachment');

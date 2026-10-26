@@ -25,6 +25,23 @@ export const LabTab = ({ projectId, isMember, isLead = false, allowStudentGpu = 
     fetchSessions();
   }, [projectId]);
 
+  // Auto-poll while on session list if any session is in a transitional state
+  useEffect(() => {
+    const hasTransitional = sessions.some((s) =>
+      ['provisioning', 'pausing', 'resuming', 'stopping'].includes(s.state || s.status)
+    );
+    if (!hasTransitional || viewState !== 'list') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await labApi.getSessions({ projectId });
+        if (data) setSessions(data);
+      } catch (e) {}
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [sessions, viewState, projectId]);
+
   const fetchSessions = async () => {
     try {
       setLoading(true);
@@ -33,7 +50,7 @@ export const LabTab = ({ projectId, isMember, isLead = false, allowStudentGpu = 
       setSessions(data || []);
 
       // If an active session exists for this project (even if launched by a teammate), show the running session view!
-      const active = (data || []).find((s) => ['running', 'provisioning', 'paused'].includes(s.state));
+      const active = (data || []).find((s) => ['running', 'provisioning', 'paused'].includes(s.state || s.status));
       if (active && !currentSession && !hasAutoOpenedRef.current) {
         hasAutoOpenedRef.current = true;
         setCurrentSession(active);

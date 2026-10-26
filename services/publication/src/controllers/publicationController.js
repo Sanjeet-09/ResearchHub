@@ -15,18 +15,26 @@ const createPublicationSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500),
   authors: z.string().optional().nullable(),
   venue: z.string().optional().nullable(),
+  venue_journal: z.string().optional().nullable(),
   doi: z.string().optional().nullable(),
   status: z.enum(['draft', 'submitted', 'accepted', 'published']).optional().default('draft'),
   publishedOn: z.string().optional().nullable(),
+  published_on: z.string().optional().nullable(),
+  publication_date: z.string().optional().nullable(),
+  projectId: z.string().uuid().optional().nullable(),
+  project_id: z.string().uuid().optional().nullable(),
 });
 
 const updatePublicationSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   authors: z.string().optional().nullable(),
   venue: z.string().optional().nullable(),
+  venue_journal: z.string().optional().nullable(),
   doi: z.string().optional().nullable(),
   status: z.enum(['draft', 'submitted', 'accepted', 'published']).optional(),
   publishedOn: z.string().optional().nullable(),
+  published_on: z.string().optional().nullable(),
+  publication_date: z.string().optional().nullable(),
 });
 
 const addLinkSchema = z.object({
@@ -34,75 +42,111 @@ const addLinkSchema = z.object({
   entityId: z.string().uuid('Entity ID must be a valid UUID'),
 });
 
+function normalizePub(p) {
+  if (!p) return p;
+  const v = p.venue_journal || p.venue || null;
+  const d = p.publication_date || p.published_on || null;
+  return {
+    ...p,
+    venue: v,
+    venue_journal: v,
+    published_on: d,
+    publication_date: d,
+    created_at: p.created_at || (d ? `${d}T00:00:00.000Z` : new Date().toISOString()),
+  };
+}
+
 // ─── Publication CRUD ────────────────────────────────────────────────────────
 
-// GET /projects/:pid/publications
+// GET /projects/:pid/publications or GET /publications
 const getPublications = async (req, res, next) => {
   try {
     const { pid } = req.params;
-    if (!uuidSchema.safeParse(pid).success) {
-      throw new ValidationError('Invalid project ID format (UUID expected)');
-    }
-
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
-
-    const result = await query(
-      `SELECT
-         p.id,
-         p.title,
-         p.authors,
-         p.venue,
-         p.doi,
-         p.status,
-         p.published_on,
-         p.project_id,
+    let queryText = `
+      SELECT
+         p.*,
          u.id AS created_by_id,
          u.full_name AS created_by_name,
          u.email AS created_by_email,
          (SELECT COUNT(*) FROM publication_links pl WHERE pl.publication_id = p.id) AS link_count
        FROM publications p
        LEFT JOIN users u ON p.created_by = u.id
-       WHERE p.project_id = $1
-       ORDER BY p.published_on DESC NULLS LAST, p.title ASC
-       LIMIT $2 OFFSET $3`,
-      [pid, parseInt(limit), offset]
-    );
+    `;
+    const params = [];
+    if (pid) {
+      if (!uuidSchema.safeParse(pid).success) {
+        throw new ValidationError('Invalid project ID format (UUID expected)');
+      }
+      queryText += ' WHERE p.project_id = $1';
+      params.push(pid);
+    }
 
-    res.json({ publications: result.rows });
+    const { page = 1, limit = 50 } = req.query;
+    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    queryText += ` ORDER BY p.published_on DESC NULLS LAST, p.title ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(parseInt(limit), offset);
+
+    const result = await query(queryText, params);
+    res.json({ publications: result.rows.map(normalizePub) });
   } catch (err) {
     next(err);
   }
 };
 
-// POST /projects/:pid/publications
+// POST /projects/:pid/publications or POST /publications
 const createPublication = async (req, res, next) => {
   try {
     const { pid } = req.params;
-    if (!uuidSchema.safeParse(pid).success) {
-      throw new ValidationError('Invalid project ID format (UUID expected)');
-    }
-
     const parsed = createPublicationSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.errors[0].message);
     }
 
-    const { title, authors, venue, doi, status, publishedOn } = parsed.data;
+    const {
+      title,
+      authors,
+      venue,
+      venue_journal,
+      doi,
+      status,
+      publishedOn,
+      published_on,
+      publication_date,
+      projectId,
+      project_id,
+    } = parsed.data;
 
-    const dbRes = await query(
-      `INSERT INTO publications (project_id, title, authors, venue, doi, status, published_on, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [pid, title, authors || null, venue || null, doi || null, status, publishedOn || null, req.user.id]
-    );
+    const finalProjectId = pid || projectId || project_id;
+    if (!finalProjectId || !uuidSchema.safeParse(finalProjectId).success) {
+      throw new ValidationError('Valid project ID format is required (UUID expected)');
+    }
 
-    const publication = dbRes.rows[0];
-    logger.info({ publicationId: publication.id, projectId: pid }, 'Publication created');
+    const finalVenue = venue || venue_journal || null;
+    const finalDate = publishedOn || published_on || publication_date || null;
+
+    let dbRes;
+    try {
+      dbRes = await query(
+        `INSERT INTO publications (project_id, title, authors, venue, venue_journal, doi, status, published_on, publication_date, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8, NOW())
+         RETURNING *`,
+        [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
+      );
+    } catch (_) {
+      dbRes = await query(
+        `INSERT INTO publications (project_id, title, authors, venue, doi, status, published_on, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
+      );
+    }
+
+    const publication = normalizePub(dbRes.rows[0]);
+    logger.info({ publicationId: publication.id, projectId: finalProjectId }, 'Publication created');
 
     emitActivityEvent({
-      projectId: pid,
-      actorId: req.user.id,
+      projectId: finalProjectId,
+      actorId: req.user?.id || null,
       action: 'created_publication',
       entityType: 'publication',
       entityId: publication.id,
@@ -115,27 +159,35 @@ const createPublication = async (req, res, next) => {
   }
 };
 
-// GET /projects/:pid/publications/:id
+// GET /projects/:pid/publications/:id or GET /publications/:id
 const getPublicationById = async (req, res, next) => {
   try {
     const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
       throw new ValidationError('Invalid ID format (UUID expected)');
     }
 
-    const result = await query(
-      `SELECT
+    let queryText = `
+      SELECT
          p.*,
          u.full_name AS created_by_name,
          u.email AS created_by_email
        FROM publications p
        LEFT JOIN users u ON p.created_by = u.id
-       WHERE p.id = $1 AND p.project_id = $2`,
-      [id, pid]
-    );
+       WHERE p.id = $1`;
+    const params = [id];
+    if (pid) {
+      queryText += ' AND p.project_id = $2';
+      params.push(pid);
+    }
+
+    const result = await query(queryText, params);
 
     if (result.rows.length === 0) {
-      throw new NotFoundError('Publication not found in this project');
+      throw new NotFoundError(pid ? 'Publication not found in this project' : 'Publication not found');
     }
 
     // Fetch linked entities
@@ -145,7 +197,7 @@ const getPublicationById = async (req, res, next) => {
     );
 
     res.json({
-      publication: result.rows[0],
+      publication: normalizePub(result.rows[0]),
       links: linksRes.rows,
     });
   } catch (err) {
@@ -153,11 +205,14 @@ const getPublicationById = async (req, res, next) => {
   }
 };
 
-// PATCH /projects/:pid/publications/:id
+// PATCH /projects/:pid/publications/:id or PATCH /publications/:id
 const updatePublication = async (req, res, next) => {
   try {
     const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
       throw new ValidationError('Invalid ID format (UUID expected)');
     }
 
@@ -166,47 +221,69 @@ const updatePublication = async (req, res, next) => {
       throw new ValidationError(parsed.error.errors[0].message);
     }
 
-    const existing = await query(
-      'SELECT * FROM publications WHERE id = $1 AND project_id = $2',
-      [id, pid]
-    );
+    let queryText = 'SELECT * FROM publications WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+
+    const existing = await query(queryText, params);
     if (existing.rows.length === 0) {
-      throw new NotFoundError('Publication not found in this project');
+      throw new NotFoundError(pid ? 'Publication not found in this project' : 'Publication not found');
     }
 
     const current = existing.rows[0];
     const {
       title = current.title,
       authors = current.authors,
-      venue = current.venue,
+      venue,
+      venue_journal,
       doi = current.doi,
       status = current.status,
-      publishedOn = current.published_on,
+      publishedOn,
+      published_on,
+      publication_date,
     } = parsed.data;
 
-    const dbRes = await query(
-      `UPDATE publications
-       SET title = $1, authors = $2, venue = $3, doi = $4, status = $5, published_on = $6
-       WHERE id = $7 AND project_id = $8
-       RETURNING *`,
-      [title, authors, venue, doi, status, publishedOn, id, pid]
-    );
+    const finalVenue = venue !== undefined ? venue : (venue_journal !== undefined ? venue_journal : current.venue);
+    const finalDate = publishedOn !== undefined ? publishedOn : (published_on !== undefined ? published_on : (publication_date !== undefined ? publication_date : current.published_on));
+
+    let dbRes;
+    try {
+      dbRes = await query(
+        `UPDATE publications
+         SET title = $1, authors = $2, venue = $3, venue_journal = $3, doi = $4, status = $5, published_on = $6, publication_date = $6
+         WHERE id = $7
+         RETURNING *`,
+        [title, authors, finalVenue, doi, status, finalDate, id]
+      );
+    } catch (_) {
+      dbRes = await query(
+        `UPDATE publications
+         SET title = $1, authors = $2, venue = $3, doi = $4, status = $5, published_on = $6
+         WHERE id = $7
+         RETURNING *`,
+        [title, authors, finalVenue, doi, status, finalDate, id]
+      );
+    }
 
     logger.info({ publicationId: id }, 'Publication updated');
 
+    const targetPid = pid || current.project_id;
     if (status !== current.status && current.created_by) {
       emitNotification({
         userId: current.created_by,
         type: 'publication_status',
         title: 'Publication Status Changed',
         body: `Publication "${title}" status changed to ${status}.`,
-        link: `/projects/${pid}?tab=publications`,
+        link: `/projects/${targetPid}?tab=publications`,
       });
     }
 
     emitActivityEvent({
-      projectId: pid,
-      actorId: req.user.id,
+      projectId: targetPid,
+      actorId: req.user?.id || null,
       action: 'updated_publication',
       entityType: 'publication',
       entityId: id,
@@ -214,34 +291,41 @@ const updatePublication = async (req, res, next) => {
       metadata: { status, previousStatus: current.status },
     });
 
-    res.json({ publication: dbRes.rows[0] });
+    res.json({ publication: normalizePub(dbRes.rows[0]) });
   } catch (err) {
     next(err);
   }
 };
 
-// DELETE /projects/:pid/publications/:id
+// DELETE /projects/:pid/publications/:id or DELETE /publications/:id
 const deletePublication = async (req, res, next) => {
   try {
     const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
       throw new ValidationError('Invalid ID format (UUID expected)');
     }
 
-    const existing = await query(
-      'SELECT * FROM publications WHERE id = $1 AND project_id = $2',
-      [id, pid]
-    );
+    let queryText = 'SELECT * FROM publications WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+
+    const existing = await query(queryText, params);
     if (existing.rows.length === 0) {
-      throw new NotFoundError('Publication not found in this project');
+      throw new NotFoundError(pid ? 'Publication not found in this project' : 'Publication not found');
     }
 
     await query('DELETE FROM publications WHERE id = $1', [id]);
     logger.info({ publicationId: id }, 'Publication deleted');
 
     emitActivityEvent({
-      projectId: pid,
-      actorId: req.user.id,
+      projectId: pid || existing.rows[0].project_id,
+      actorId: req.user?.id || null,
       action: 'deleted_publication',
       entityType: 'publication',
       entityId: id,

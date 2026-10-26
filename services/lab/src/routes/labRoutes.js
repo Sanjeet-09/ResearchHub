@@ -8,6 +8,7 @@ const {
   getSessions,
   getActiveSession,
   getSession,
+  getSessionStatus,
   pauseSession,
   resumeSession,
   stopSession,
@@ -41,6 +42,7 @@ router.post('/lab/sessions', authenticateToken, createSession);
 router.get('/lab/sessions', authenticateToken, getSessions);
 router.get('/lab/active-session', authenticateToken, getActiveSession);
 router.get('/lab/sessions/:id', authenticateToken, getSession);
+router.get('/lab/sessions/:id/status', authenticateToken, getSessionStatus);
 router.delete('/lab/sessions/:id', authenticateToken, deleteSession);
 router.patch('/lab/sessions/:id', authenticateToken, updateSession);
 router.post('/lab/sessions/:id/restart', authenticateToken, restartSession);

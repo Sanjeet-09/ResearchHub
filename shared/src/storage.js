@@ -56,6 +56,14 @@ class LocalDiskStorageAdapter {
     const filePath = this._getFilePath(bucket, key);
     return fs.existsSync(filePath);
   }
+
+  async readFile(bucket, key) {
+    const filePath = this._getFilePath(bucket, key);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    return await fs.promises.readFile(filePath);
+  }
 }
 
 let storageInstance = null;

@@ -389,7 +389,7 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
 
   // 7. Stop Session
   describe('POST /lab/sessions/:id/stop', () => {
-    it('rejects already stopped session with 409', async () => {
+    it('safely handles already stopped session with 200 (idempotent)', async () => {
       mockQuery.mockResolvedValueOnce({
         rows: [{ id: SESSION_ID, user_id: studentId, state: 'stopped' }],
       });
@@ -398,11 +398,28 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
         .post(`/lab/sessions/${SESSION_ID}/stop`)
         .set('Authorization', `Bearer ${studentToken}`);
 
-      expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('INVALID_STATE');
+      expect(res.status).toBe(200);
+      expect(res.body.session.state).toBe('stopped');
+      expect(res.body.session.status).toBe('stopped');
+      expect(res.body.message).toBe('Session is already stopped');
     });
 
-    it('initiates stop and returns 202 stopping', async () => {
+    it('safely handles already stopping session with 202 (idempotent)', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: SESSION_ID, user_id: studentId, state: 'stopping' }],
+      });
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/stop`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(202);
+      expect(res.body.session.state).toBe('stopping');
+      expect(res.body.session.status).toBe('stopping');
+      expect(res.body.message).toBe('Session is currently stopping');
+    });
+
+    it('initiates stop and returns 202 stopping from running', async () => {
       mockQuery
         .mockResolvedValueOnce({
           rows: [
@@ -426,6 +443,82 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
 
       expect(res.status).toBe(202);
       expect(res.body.session.state).toBe('stopping');
+    });
+
+    it('allows stopping and cleanup of failed session', async () => {
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              user_id: studentId,
+              state: 'failed',
+              project_id: PROJ_ID,
+              total_runtime_seconds: 0,
+              est_cost_per_hour: '0.05',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // update state to stopping
+        .mockResolvedValueOnce({ rows: [] }); // insert event
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/stop`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(202);
+      expect(res.body.session.state).toBe('stopping');
+    });
+
+    it('defensively handles unexpected errors during stop and returns 200 with exportSuccess false', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('JupyterLab connection refused'));
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/stop`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ exportNotebooks: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.exportSuccess).toBe(false);
+      expect(res.body.message).toContain('Session stopped, but notebook export was unavailable');
+    });
+  });
+
+  // 7b. Export Notebooks
+  describe('POST /lab/sessions/:id/export', () => {
+    it('returns 200 and exports notebooks cleanly even if JupyterLab url is unreachable', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: SESSION_ID,
+            user_id: studentId,
+            project_id: PROJ_ID,
+            name: 'My Lab',
+            state: 'running',
+            url: 'http://127.0.0.1:9999',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/export`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.exportSuccess).toBe(true);
+      expect(res.body.count).toBeDefined();
+    });
+
+    it('defensively returns 200 with exportSuccess false if export query fails completely', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('Database disconnect'));
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/export`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.exportSuccess).toBe(false);
+      expect(res.body.message).toContain('Session stopped, but notebook export was unavailable');
     });
   });
 
@@ -539,6 +632,129 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
 
       expect(res.status).toBe(202);
       expect(res.body.session.state).toBe('provisioning');
+    });
+
+    it('re-provisions with new instance name if instance does not exist in GCE (deleted to scale to zero)', async () => {
+      mockDriver.status.mockResolvedValueOnce({ status: 'NOT_FOUND', ready: false });
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              user_id: studentId,
+              project_id: PROJ_ID,
+              profile_id: 1,
+              profile_key: 'standard-cpu',
+              allow_student_gpu: false,
+              name: 'deleted-vm-session',
+              state: 'stopped',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, key: 'standard-cpu', category: 'general', is_active: true }],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/restart`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({});
+
+      expect(res.status).toBe(202);
+      expect(res.body.session.state).toBe('provisioning');
+      expect(res.body.session.instance_name).toMatch(/^rh-lab-/);
+    });
+
+    it('calls startContainer when instance exists but is stopped in GCE', async () => {
+      mockDriver.status.mockResolvedValueOnce({ status: 'PAUSED', ready: false });
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: SESSION_ID,
+              user_id: studentId,
+              project_id: PROJ_ID,
+              profile_id: 1,
+              profile_key: 'standard-cpu',
+              allow_student_gpu: false,
+              name: 'stopped-vm-session',
+              state: 'stopped',
+              gce_instance_name: 'rh-lab-existing123',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, key: 'standard-cpu', category: 'general', is_active: true }],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/restart`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({});
+
+      expect(res.status).toBe(202);
+      expect(res.body.session.state).toBe('provisioning');
+      expect(res.body.session.instance_name).toBe('rh-lab-existing123');
+    });
+
+    it('rejects restarting an already running session with 400', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: SESSION_ID,
+            user_id: studentId,
+            project_id: PROJ_ID,
+            profile_id: 1,
+            profile_key: 'standard-cpu',
+            allow_student_gpu: false,
+            name: 'running-session',
+            state: 'running',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post(`/lab/sessions/${SESSION_ID}/restart`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Cannot restart session in \'running\' state');
+    });
+
+    it('returns session status, readiness probe, and url on GET /lab/sessions/:id/status', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: SESSION_ID,
+            user_id: studentId,
+            project_id: PROJ_ID,
+            name: 'test-session',
+            state: 'running',
+            url: 'http://34.120.50.60:8888',
+            profile_name: 'Basic CPU',
+            profile_key: 'basic-cpu',
+            started_at: new Date().toISOString(),
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get(`/lab/sessions/${SESSION_ID}/status`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.session.id).toBe(SESSION_ID);
+      expect(res.body.session.status).toBe('RUNNING');
+      expect(res.body.session.ready).toBe(true);
     });
   });
 

@@ -5,9 +5,9 @@
 'use strict';
 
 function getDriver() {
-  const driverName = (process.env.LAB_DRIVER || 'local').toLowerCase();
-  if (driverName === 'cloudrun') {
-    return require('./cloudrunDriver');
+  const driverName = (process.env.LAB_DRIVER || (process.env.NODE_ENV === 'production' ? 'gce' : 'local')).toLowerCase();
+  if (driverName === 'gce' || driverName === 'compute' || driverName === 'cloudrun') {
+    return require('./gceDriver');
   }
   return require('./localDriver');
 }

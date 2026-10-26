@@ -9,6 +9,7 @@
     "test": "jest --runInBand --detectOpenHandles"
   },
   "dependencies": {
+    "@google-cloud/compute": "^7.9.0",
     "@rh/shared": "*",
     "axios": "^1.7.9",
     "cors": "^2.8.5",

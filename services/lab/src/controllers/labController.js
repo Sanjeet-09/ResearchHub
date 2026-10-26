@@ -18,7 +18,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { pool } = require('@rh/shared');
+const axios = require('axios');
+const { pool, getStorageAdapter } = require('@rh/shared');
 const { emitActivityEvent, emitNotification } = require('@rh/shared');
 const logger = require('../logger');
 const { getDriver } = require('../drivers');
@@ -158,7 +159,7 @@ async function createSession(req, res, next) {
       }
       // 1 GPU session per project
       const gpuSessionRow = await client.query(
-        `SELECT id FROM lab_sessions ls
+        `SELECT ls.id FROM lab_sessions ls
          JOIN lab_profiles lp ON ls.profile_id = lp.id
          WHERE ls.project_id = $1
            AND lp.category = 'ai_ml'
@@ -239,7 +240,7 @@ async function createSession(req, res, next) {
     await insertSessionEvent(client, sessionId, 'created', { profileKey });
 
     res.status(202).json({
-      session: { id: sessionId, state: 'provisioning', name: name.trim(), profileKey },
+      session: { id: sessionId, state: 'provisioning', status: 'provisioning', name: name.trim(), profileKey },
     });
 
     // Asynchronously provision the container
@@ -258,7 +259,7 @@ async function createSession(req, res, next) {
 /**
  * Internal: asynchronously create the container and update session state.
  */
-async function _provisionSession(sessionId, userId, projectId, profile, jupyterToken, workspacePrefix, sessionName) {
+async function _provisionSession(sessionId, userId, projectId, profile, jupyterToken, workspacePrefix, sessionName, instanceName) {
   const driver = getDriver();
   const client = await pool.connect();
   try {
@@ -268,33 +269,57 @@ async function _provisionSession(sessionId, userId, projectId, profile, jupyterT
       workspaceDir = driver.ensureWorkspaceDir(userId, sessionId);
     }
 
-    const { containerName: cname, url } = await driver.create({
+    const createFn = typeof driver.createContainer === 'function' ? driver.createContainer : driver.create;
+    const { containerName: cname, url } = await createFn.call(driver, {
       sessionId,
       userId,
       projectId,
       profileKey: profile.key,
       jupyterToken,
       workspaceDir,
+      instanceName,
     });
 
     // Store encrypted token (simple XOR with key in local mode)
     const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
     const encToken = _encryptToken(jupyterToken, tokenKey);
 
+    // Guard against cancellation while container was being created
+    let cancelCheck = null;
+    try {
+      cancelCheck = await client.query(`SELECT state FROM lab_sessions WHERE id = $1`, [sessionId]);
+    } catch (_) {}
+    if (cancelCheck?.rows?.[0] && (cancelCheck.rows[0].state === 'stopping' || cancelCheck.rows[0].state === 'stopped')) {
+      logger.info({ sessionId }, 'Session was cancelled or stopped during provisioning — deleting compute container');
+      await driver.deleteContainer(sessionId).catch(() => {});
+      return;
+    }
+
+    // Wait for Jupyter to be ready (up to 90s) before marking session as running
+    const ready = await driver.waitForJupyter(url, jupyterToken, 90000);
+    if (!ready) {
+      logger.warn({ sessionId }, 'Jupyter did not become ready within timeout — proceeding with caution');
+    }
+
+    // Check again before committing running state
+    let finalCheck = null;
+    try {
+      finalCheck = await client.query(`SELECT state FROM lab_sessions WHERE id = $1`, [sessionId]);
+    } catch (_) {}
+    if (finalCheck?.rows?.[0] && (finalCheck.rows[0].state === 'stopping' || finalCheck.rows[0].state === 'stopped')) {
+      logger.info({ sessionId }, 'Session was cancelled or stopped while waiting for Jupyter — deleting compute container');
+      await driver.deleteContainer(sessionId).catch(() => {});
+      return;
+    }
+
     await client.query(
       `UPDATE lab_sessions
-       SET state = 'running', cloud_run_service = $1, url = $2,
+       SET state = 'running', cloud_run_service = $1, gce_instance_name = $1, url = $2,
            jupyter_token_enc = $3, last_active_at = NOW()
        WHERE id = $4`,
       [cname, url, encToken, sessionId]
     );
     await insertSessionEvent(client, sessionId, 'running', { containerName: cname, url });
-
-    // Wait for Jupyter to be ready (up to 90s)
-    const ready = await driver.waitForJupyter(url, jupyterToken, 90000);
-    if (!ready) {
-      logger.warn({ sessionId }, 'Jupyter did not become ready within timeout');
-    }
 
     // Emit activity
     emitActivityEvent({
@@ -307,6 +332,7 @@ async function _provisionSession(sessionId, userId, projectId, profile, jupyterT
       metadata: { profileKey: profile.key },
     });
   } catch (err) {
+    console.error('[Lab] Restart failed:', err);
     logger.error({ err: err.message, sessionId }, 'Provisioning error — marking failed');
     await client.query(
       `UPDATE lab_sessions SET state = 'failed', last_error = $1 WHERE id = $2`,
@@ -392,6 +418,7 @@ async function getSessions(req, res, next) {
 
       return {
         ...s,
+        status: s.state,
         url: isOwner ? sessionUrl : undefined,
         token: isOwner ? jupyterToken : undefined,
         port: isOwner ? port : undefined,
@@ -466,6 +493,7 @@ async function getActiveSession(req, res, next) {
     res.json({
       session: {
         ...s,
+        status: s.state,
         url: isOwner ? sessionUrl : undefined,
         token: isOwner ? jupyterToken : undefined,
         port: isOwner ? port : undefined,
@@ -536,7 +564,12 @@ async function getSession(req, res, next) {
       session.jupyter_token_enc = undefined;
     }
 
-    res.json({ session });
+    res.json({
+      session: {
+        ...session,
+        status: session.state,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -580,7 +613,7 @@ async function pauseSession(req, res, next) {
     await insertSessionEvent(client, id, 'pausing', {});
     client.release();
 
-    res.status(202).json({ session: { id, state: 'pausing' } });
+    res.status(202).json({ session: { id, state: 'pausing', status: 'pausing' } });
 
     // Async pause
     _executePause(session).catch((err) =>
@@ -705,7 +738,7 @@ async function resumeSession(req, res, next) {
     await insertSessionEvent(client, id, 'resuming', {});
     client.release();
 
-    res.status(202).json({ session: { id, state: 'resuming' } });
+    res.status(202).json({ session: { id, state: 'resuming', status: 'resuming' } });
 
     _executeResume(session).catch((err) =>
       logger.error({ err: err.message, sessionId: id }, 'Resume execution failed')
@@ -736,6 +769,24 @@ async function _executeResume(session) {
 
     const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
     const encToken = _encryptToken(newToken, tokenKey);
+
+    // Guard against cancellation while resuming
+    const cancelCheck = await client.query(`SELECT state FROM lab_sessions WHERE id = $1`, [session.id]).catch(() => null);
+    if (cancelCheck?.rows?.[0] && (cancelCheck.rows[0].state === 'stopping' || cancelCheck.rows[0].state === 'stopped')) {
+      await driver.deleteContainer(session.id).catch(() => {});
+      return;
+    }
+
+    const ready = await driver.waitForJupyter(url, newToken, 90000);
+    if (!ready) {
+      logger.warn({ sessionId: session.id }, 'Jupyter did not become ready within timeout during resume');
+    }
+
+    const finalCheck = await client.query(`SELECT state FROM lab_sessions WHERE id = $1`, [session.id]).catch(() => null);
+    if (finalCheck?.rows?.[0] && (finalCheck.rows[0].state === 'stopping' || finalCheck.rows[0].state === 'stopped')) {
+      await driver.deleteContainer(session.id).catch(() => {});
+      return;
+    }
 
     await client.query(
       `UPDATE lab_sessions
@@ -772,9 +823,11 @@ async function _executeResume(session) {
 // POST /lab/sessions/:id/stop
 // ─────────────────────────────────────────────────────────────
 async function stopSession(req, res, next) {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
     const { id } = req.params;
     const { exportNotebooks } = req.body || {};
 
@@ -786,19 +839,37 @@ async function stopSession(req, res, next) {
        WHERE ls.id = $1 FOR UPDATE`,
       [id]
     );
-    if (rows.length === 0) {
+    if (!rows || rows.length === 0) {
+      client.release();
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
     }
     const session = rows[0];
-    if (session.user_id !== userId) {
-      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only the owner can stop a session' } });
+
+    // Authorization: owner, professor, or admin
+    if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      client.release();
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only the owner or an administrator can stop a session' } });
     }
-    if (session.state === 'stopped' || session.state === 'stopping') {
-      return res.status(409).json({
-        error: { code: 'INVALID_STATE', message: `Session is already ${session.state}` },
+
+    // Idempotent stop: If already stopped, return 200 OK immediately without error
+    if (session.state === 'stopped') {
+      client.release();
+      return res.status(200).json({
+        session: { id, state: 'stopped', status: 'stopped' },
+        message: 'Session is already stopped',
       });
     }
 
+    // Idempotent stop: If already stopping, return 202 Accepted immediately without duplicate trigger
+    if (session.state === 'stopping') {
+      client.release();
+      return res.status(202).json({
+        session: { id, state: 'stopping', status: 'stopping' },
+        message: 'Session is currently stopping',
+      });
+    }
+
+    // Allow stopping from any state: running, provisioning, pausing, paused, resuming, failed
     await client.query(
       `UPDATE lab_sessions SET state = 'stopping' WHERE id = $1`,
       [id]
@@ -806,36 +877,58 @@ async function stopSession(req, res, next) {
     await insertSessionEvent(client, id, 'stopping', { exportNotebooks: !!exportNotebooks });
     client.release();
 
-    res.status(202).json({ session: { id, state: 'stopping' } });
+    res.status(202).json({ session: { id, state: 'stopping', status: 'stopping' } });
 
     _executeStop(session, !!exportNotebooks).catch((err) =>
       logger.error({ err: err.message, sessionId: id }, 'Stop execution failed')
     );
   } catch (err) {
-    client.release();
-    next(err);
+    if (client) {
+      try { client.release(); } catch (_) {}
+    }
+    logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${err.message}`);
+    // Still proceed with deleting GCE VM via gceDriver.deleteContainer and updating state
+    try {
+      const driver = getDriver();
+      await driver.deleteContainer(req.params.id).catch(() => {});
+      await pool.query(
+        `UPDATE lab_sessions SET state = 'stopped', stopped_at = NOW(), url = NULL, jupyter_token_enc = NULL WHERE id = $1`,
+        [req.params.id]
+      ).catch(() => {});
+    } catch (_) {}
+
+    return res.status(200).json({
+      message: 'Session stopped, but notebook export was unavailable',
+      exportSuccess: false,
+      session: { id: req.params.id, state: 'stopped', status: 'stopped' },
+    });
   }
 }
 
 async function _executeStop(session, exportNotebooks) {
   const driver = getDriver();
-  const client = await pool.connect();
+  let client;
   try {
-    // Delete compute (ignore 404)
+    // 1. Export notebooks BEFORE deleting compute container (best effort with defensive error handling)
+    if (exportNotebooks) {
+      try {
+        await _exportNotebooks(session);
+      } catch (err) {
+        logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${err.message}`);
+      }
+    }
+
+    // 2. Delete compute VM/container (scale-to-zero, ignore 404)
     await driver.deleteContainer(session.id).catch(() => { });
 
-    // Export notebooks to documents if requested (best-effort)
-    if (exportNotebooks) {
-      await _exportNotebooks(session).catch((err) =>
-        logger.warn({ err: err.message }, 'Notebook export failed (ignored)')
-      );
-    }
-
-    // Delete workspace
+    // 3. Delete workspace if driver supports it
     if (typeof driver.deleteWorkspace === 'function') {
-      driver.deleteWorkspace(session.user_id, session.id);
+      try {
+        driver.deleteWorkspace(session.user_id, session.id);
+      } catch (_) {}
     }
 
+    client = await pool.connect();
     const elapsed = session.total_runtime_seconds || 0;
     const additionalCost = session.state === 'running'
       ? (elapsed / 3600) * parseFloat(session.est_cost_per_hour || 0)
@@ -845,7 +938,7 @@ async function _executeStop(session, exportNotebooks) {
       `UPDATE lab_sessions
        SET state = 'stopped', stopped_at = NOW(),
            url = NULL, jupyter_token_enc = NULL,
-           est_cost_usd = est_cost_usd + $1
+           est_cost_usd = COALESCE(est_cost_usd, 0) + $1
        WHERE id = $2`,
       [additionalCost.toFixed(4), session.id]
     );
@@ -862,12 +955,16 @@ async function _executeStop(session, exportNotebooks) {
     });
   } catch (err) {
     logger.error({ err: err.message, sessionId: session.id }, 'Stop failed — marking failed');
-    await client.query(
-      `UPDATE lab_sessions SET state = 'failed', last_error = $1 WHERE id = $2`,
-      [err.message, session.id]
-    );
+    if (client) {
+      await client.query(
+        `UPDATE lab_sessions SET state = 'failed', last_error = $1 WHERE id = $2`,
+        [err.message, session.id]
+      ).catch(() => {});
+    }
   } finally {
-    client.release();
+    if (client) {
+      try { client.release(); } catch (_) {}
+    }
   }
 }
 
@@ -883,7 +980,7 @@ async function exportSession(req, res, next) {
       `SELECT ls.* FROM lab_sessions ls WHERE ls.id = $1`,
       [id]
     );
-    if (rows.length === 0) {
+    if (!rows || rows.length === 0) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
     }
     const session = rows[0];
@@ -891,48 +988,215 @@ async function exportSession(req, res, next) {
       return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only the owner can export' } });
     }
 
-    const count = await _exportNotebooks(session);
-    res.json({ message: `Exported ${count} notebook(s) to project documents`, count });
+    try {
+      const count = await _exportNotebooks(session);
+      return res.json({
+        message: `Exported ${count} notebook(s) to project documents`,
+        count,
+        exportSuccess: true,
+      });
+    } catch (exportErr) {
+      logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${exportErr.message}`);
+      return res.status(200).json({
+        message: 'Session stopped, but notebook export was unavailable',
+        exportSuccess: false,
+        count: 0,
+      });
+    }
   } catch (err) {
-    next(err);
+    logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${err.message}`);
+    return res.status(200).json({
+      message: 'Session stopped, but notebook export was unavailable',
+      exportSuccess: false,
+    });
   }
 }
 
 async function _exportNotebooks(session) {
-  const driver = getDriver();
-  if (typeof driver.getWorkspacePath !== 'function') return 0;
+  const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+  const jupyterToken = session.jupyter_token_enc
+    ? _decryptToken(session.jupyter_token_enc, tokenKey)
+    : null;
 
-  const wsPath = driver.getWorkspacePath(session.user_id, session.id);
-  if (!require('fs').existsSync(wsPath)) return 0;
+  const exportedNotebooks = [];
 
-  const fs = require('fs');
-  const path = require('path');
-  const http = require('http');
-  const DOCUMENT_SERVICE_URL = process.env.SERVICE_URL_DOCUMENT || 'http://localhost:5005';
-
-  const notebooks = [];
-  function findNotebooks(dir) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) findNotebooks(fullPath);
-      else if (entry.name.endsWith('.ipynb')) notebooks.push(fullPath);
-    }
-  }
-  findNotebooks(wsPath);
-
-  // For each notebook, create a document entry (fire HTTP to document-service)
-  let count = 0;
-  for (const nbPath of notebooks) {
+  // 1. Inspect JupyterLab Contents API on the worker VM (port 8888)
+  if (session.url) {
     try {
-      // This is a best-effort placeholder; the actual upload flow would use the storage adapter.
-      // For local mode, we just log it.
-      logger.info({ nbPath, sessionId: session.id }, 'Notebook export (local mode — metadata logged)');
-      count++;
+      const baseUrl = session.url.replace(/\/+$/, '');
+      const headers = { Accept: 'application/json' };
+      if (jupyterToken) {
+        headers['Authorization'] = `token ${jupyterToken}`;
+      }
+
+      const pathsToTry = ['/api/contents', '/api/contents/work'];
+      for (const apiPath of pathsToTry) {
+        try {
+          const resp = await axios.get(`${baseUrl}${apiPath}?content=1`, {
+            headers,
+            timeout: 15000, // 15-second generous timeout for large notebooks
+          });
+
+          const items = Array.isArray(resp.data?.content)
+            ? resp.data.content
+            : Array.isArray(resp.data)
+              ? resp.data
+              : [];
+
+          for (const item of items) {
+            if (item.type === 'notebook' || (item.name && item.name.endsWith('.ipynb'))) {
+              if (item.content) {
+                exportedNotebooks.push({ name: item.name, content: item.content });
+              } else if (item.path) {
+                try {
+                  const nbResp = await axios.get(`${baseUrl}/api/contents/${encodeURIComponent(item.path)}`, {
+                    headers,
+                    timeout: 15000,
+                  });
+                  if (nbResp.data?.content) {
+                    exportedNotebooks.push({ name: item.name, content: nbResp.data.content });
+                  }
+                } catch (nbErr) {
+                  logger.warn({ path: item.path, err: nbErr.message }, 'Failed to fetch individual notebook content');
+                }
+              }
+            }
+          }
+
+          if (exportedNotebooks.length > 0) break;
+        } catch (queryErr) {
+          logger.warn({ apiPath, err: queryErr.message }, 'Jupyter Contents API query attempt failed');
+        }
+      }
     } catch (err) {
-      logger.warn({ err: err.message, nbPath }, 'Failed to export notebook');
+      logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${err.message}`);
     }
   }
+
+  // 2. Fallback: Check local filesystem workspace
+  const driver = getDriver();
+  if (exportedNotebooks.length === 0 && typeof driver.getWorkspacePath === 'function') {
+    try {
+      const wsPath = driver.getWorkspacePath(session.user_id, session.id);
+      if (fs.existsSync(wsPath)) {
+        const scanDir = (dir) => {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              scanDir(fullPath);
+            } else if (entry.name.endsWith('.ipynb')) {
+              try {
+                const raw = fs.readFileSync(fullPath, 'utf8');
+                exportedNotebooks.push({ name: entry.name, content: JSON.parse(raw) });
+              } catch (_) {}
+            }
+          }
+        };
+        scanDir(wsPath);
+      }
+    } catch (e) {
+      logger.warn({ sessionId: session.id, err: e.message }, 'Local workspace scan failed');
+    }
+  }
+
+  // 3. Fallback: In-memory collaborative notebook state (notebookStore)
+  if (exportedNotebooks.length === 0 && notebookStore.has(session.id)) {
+    const storeNb = notebookStore.get(session.id);
+    if (storeNb && Array.isArray(storeNb.cells) && storeNb.cells.length > 0) {
+      const ipynbCells = storeNb.cells.map((c) => ({
+        cell_type: c.type || 'code',
+        metadata: {},
+        execution_count: c.executionCount || null,
+        source: (c.source || '').split('\n').map((l) => l + '\n'),
+        outputs: c.output
+          ? [
+              {
+                name: 'stdout',
+                output_type: 'stream',
+                text: [c.output.content || ''],
+              },
+            ]
+          : [],
+      }));
+      const ipynb = {
+        cells: ipynbCells,
+        metadata: {
+          language_info: { name: 'python', version: '3.11.8' },
+          kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+        },
+        nbformat: 4,
+        nbformat_minor: 5,
+      };
+      const nbName = `${(session.name || 'notebook').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.ipynb`;
+      exportedNotebooks.push({ name: nbName, content: ipynb });
+    }
+  }
+
+  if (exportedNotebooks.length === 0) {
+    return 0;
+  }
+
+  // 4. Persist each retrieved notebook to storage bucket and documents table
+  let count = 0;
+  const storage = getStorageAdapter();
+
+  for (const nb of exportedNotebooks) {
+    try {
+      const rawJson = typeof nb.content === 'string' ? nb.content : JSON.stringify(nb.content, null, 2);
+      const buffer = Buffer.from(rawJson, 'utf8');
+      const safeFileName = nb.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+      const timestamp = Date.now();
+      const key = `documents/${session.project_id}/${timestamp}_${safeFileName}`;
+      const docTitle = safeFileName.replace(/\.ipynb$/i, '');
+
+      let gcsPath = `gs://researchhub-storage/${key}`;
+      try {
+        if (storage && typeof storage.uploadFile === 'function') {
+          gcsPath = await storage.uploadFile('researchhub-storage', key, buffer, 'application/x-ipynb+json');
+        }
+      } catch (storageErr) {
+        logger.warn(`[Document] Storage upload error: ${storageErr.message}`);
+      }
+
+      // Ensure 'type' column exists if possible
+      try {
+        await pool.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS type TEXT`);
+      } catch (_) {}
+
+      // Write to documents table (with project_id, type = 'notebook')
+      try {
+        await pool.query(
+          `INSERT INTO documents (project_id, title, doc_type, type, gcs_path, mime_type, size_bytes, uploaded_by)
+           VALUES ($1, $2, 'report', 'notebook', $3, 'application/x-ipynb+json', $4, $5)`,
+          [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
+        );
+      } catch (dbErr) {
+        // Fallback without 'type' column if not supported
+        try {
+          await pool.query(
+            `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
+             VALUES ($1, $2, 'report', $3, 'application/x-ipynb+json', $4, $5)`,
+            [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
+          );
+        } catch (_) {}
+      }
+
+      logger.info({ name: safeFileName, sessionId: session.id, projectId: session.project_id }, 'Exported notebook saved to documents');
+      emitActivityEvent({
+        projectId: session.project_id,
+        actorId: session.user_id,
+        action: 'exported_notebook',
+        entityType: 'document',
+        summary: `Exported notebook "${docTitle}.ipynb" to project documents`,
+        metadata: { sessionId: session.id, fileName: safeFileName },
+      });
+      count++;
+    } catch (persistErr) {
+      logger.warn({ err: persistErr.message, name: nb.name }, 'Failed to persist exported notebook');
+    }
+  }
+
   return count;
 }
 
@@ -1214,7 +1478,7 @@ async function updateSession(req, res, next) {
       [id]
     );
 
-    res.json({ session: fresh.rows[0] });
+    res.json({ session: { ...fresh.rows[0], status: fresh.rows[0]?.state } });
   } catch (err) {
     next(err);
   } finally {
@@ -1224,11 +1488,12 @@ async function updateSession(req, res, next) {
 
 // ─────────────────────────────────────────────────────────────
 // POST /lab/sessions/:id/restart
-// Relaunch a stopped or failed session
+// Relaunch a stopped or failed session (re-provision if deleted from GCE)
 // ─────────────────────────────────────────────────────────────
 async function restartSession(req, res, next) {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const userId = req.user?.id || req.headers['x-user-id'];
     const userRole = req.user?.role || req.headers['x-user-role'];
     const { id } = req.params;
@@ -1243,12 +1508,28 @@ async function restartSession(req, res, next) {
       [id]
     );
     if (rows.length === 0) {
+      client.release();
+      client = null;
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
     }
     const session = rows[0];
 
     if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      client.release();
+      client = null;
       return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to restart this session' } });
+    }
+
+    // Check if session is in STOPPED, FAILED, or PAUSED state
+    const allowedStates = ['stopped', 'failed', 'paused'];
+    const currentState = String(session.state || '').toLowerCase();
+    if (!allowedStates.includes(currentState)) {
+      client.release();
+      client = null;
+      return res.status(400).json({
+        error: `Cannot restart session in '${session.state}' state. Only stopped, failed, or paused sessions can be restarted.`,
+        message: `Cannot restart session in '${session.state}' state.`,
+      });
     }
 
     // 1 active session per user check
@@ -1258,6 +1539,8 @@ async function restartSession(req, res, next) {
       [userId, id]
     );
     if (activeRow.rows.length > 0) {
+      client.release();
+      client = null;
       return res.status(409).json({
         error: { code: 'SESSION_LIMIT', message: 'You already have an active session. Please pause or stop it first.' },
       });
@@ -1266,15 +1549,21 @@ async function restartSession(req, res, next) {
     let targetProfileKey = profileKey || session.profile_key;
     const pRes = await client.query(`SELECT * FROM lab_profiles WHERE key = $1`, [targetProfileKey]);
     if (pRes.rows.length === 0) {
+      client.release();
+      client = null;
       return res.status(400).json({ error: { code: 'INVALID_PROFILE', message: 'Profile not found' } });
     }
     const profile = pRes.rows[0];
 
     if (profile.category === 'ai_ml') {
       if (!isGpuLabsEnabled()) {
+        client.release();
+        client = null;
         return res.status(400).json({ error: { code: 'GPU_DISABLED', message: 'GPU labs are currently disabled.' } });
       }
       if (userRole === 'student' && !session.allow_student_gpu) {
+        client.release();
+        client = null;
         return res.status(403).json({
           error: { code: 'STUDENT_GPU_FORBIDDEN', message: 'Students require professor permission for GPU profiles.' },
         });
@@ -1285,27 +1574,242 @@ async function restartSession(req, res, next) {
     const jupyterToken = crypto.randomBytes(32).toString('hex');
     const workspacePrefix = session.workspace_prefix || `workspaces/${userId}/${session.id}`;
 
+    // Check with driver.status(session.instance_name, session.zone) or query GCE
+    const driver = getDriver();
+    const instName = session.gce_instance_name || session.cloud_run_service || session.instance_name || session.id;
+    let instStatus = 'NOT_FOUND';
+    try {
+      if (typeof driver.status === 'function') {
+        const rawStatus = await driver.status(instName, session.gce_zone);
+        if (typeof rawStatus === 'object' && rawStatus !== null) {
+          instStatus = rawStatus.status;
+        } else {
+          instStatus = rawStatus;
+        }
+      }
+    } catch (statusErr) {
+      logger.warn({ err: statusErr.message, instName }, 'Error querying driver status during restart — treating as deleted');
+      instStatus = 'NOT_FOUND';
+    }
+
+    const isStoppedInGce = ['PAUSED', 'TERMINATED', 'STOPPED', 'EXITED'].includes(String(instStatus || '').toUpperCase());
+
+    if (isStoppedInGce) {
+      // The instance exists but is stopped in GCE: start it
+      await client.query(
+        `UPDATE lab_sessions
+         SET state = 'provisioning', name = $1, profile_id = $2,
+             started_at = NOW(), stopped_at = NULL, paused_at = NULL,
+             last_error = NULL
+         WHERE id = $3`,
+        [sessionName, profile.id, id]
+      );
+      await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey, resumedExisting: true });
+
+      res.status(202).json({
+        session: {
+          id,
+          state: 'provisioning',
+          status: 'provisioning',
+          name: sessionName,
+          profileKey: targetProfileKey,
+          instance_name: instName,
+        },
+      });
+
+      client.release();
+      client = null;
+
+      _resumeStoppedInstance(id, userId, session.project_id, profile, jupyterToken, instName, session.gce_zone).catch(
+        (err) => {
+          console.error('[Lab] Restart failed:', err);
+          logger.error({ err: err.message, sessionId: id }, 'Restart startContainer failed');
+        }
+      );
+    } else {
+      // The instance does not exist in GCE (deleted to scale to zero): re-provision
+      const cleanId = id.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 8);
+      const newInstanceName = `rh-lab-${cleanId}-${Date.now()}`;
+
+      await client.query(
+        `UPDATE lab_sessions
+         SET state = 'provisioning', name = $1, profile_id = $2,
+             cloud_run_service = $3, gce_instance_name = $3,
+             started_at = NOW(), stopped_at = NULL, paused_at = NULL,
+             last_error = NULL, url = NULL
+         WHERE id = $4`,
+        [sessionName, profile.id, newInstanceName, id]
+      );
+      await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey, reprovisioned: true, newInstanceName });
+
+      res.status(202).json({
+        session: {
+          id,
+          state: 'provisioning',
+          status: 'provisioning',
+          name: sessionName,
+          profileKey: targetProfileKey,
+          instance_name: newInstanceName,
+          gce_instance_name: newInstanceName,
+        },
+      });
+
+      client.release();
+      client = null;
+
+      _provisionSession(id, userId, session.project_id, profile, jupyterToken, workspacePrefix, sessionName, newInstanceName).catch(
+        (err) => {
+          console.error('[Lab] Restart failed:', err);
+          logger.error({ err: err.message, sessionId: id }, 'Restart provision failed');
+        }
+      );
+    }
+  } catch (err) {
+    if (client) {
+      try { client.release(); } catch (_) {}
+    }
+    console.error('[Lab] Restart failed:', err);
+    return res.status(err.status || 500).json({ error: err.message, message: err.message });
+  }
+}
+
+/**
+ * Internal: asynchronously start an existing stopped GCE worker instance and mark running.
+ */
+async function _resumeStoppedInstance(sessionId, userId, projectId, profile, jupyterToken, instName, zone) {
+  const driver = getDriver();
+  const client = await pool.connect();
+  try {
+    let url = null;
+    let cname = instName;
+    if (typeof driver.startContainer === 'function') {
+      const res = await driver.startContainer(instName, zone);
+      url = res?.url;
+      cname = res?.containerName || instName;
+    }
+
+    const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+    const encToken = _encryptToken(jupyterToken, tokenKey);
+
+    if (url) {
+      const ready = await driver.waitForJupyter(url, jupyterToken, 90000);
+      if (!ready) {
+        logger.warn({ sessionId }, 'Jupyter did not become ready within timeout after startContainer');
+      }
+    }
+
     await client.query(
       `UPDATE lab_sessions
-       SET state = 'provisioning', name = $1, profile_id = $2,
-           started_at = NOW(), stopped_at = NULL, paused_at = NULL,
-           last_error = NULL, url = NULL, cloud_run_service = NULL
-       WHERE id = $3`,
-      [sessionName, profile.id, id]
+       SET state = 'running', cloud_run_service = $1, gce_instance_name = $1, url = COALESCE($2, url),
+           jupyter_token_enc = $3, last_active_at = NOW()
+       WHERE id = $4`,
+      [cname, url, encToken, sessionId]
     );
-    await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey });
-
-    res.status(202).json({
-      session: { id, state: 'provisioning', name: sessionName, profileKey: targetProfileKey },
-    });
-
-    client.release();
-
-    _provisionSession(id, userId, session.project_id, profile, jupyterToken, workspacePrefix, sessionName).catch(
-      (err) => logger.error({ err: err.message, sessionId: id }, 'Restart provision failed')
-    );
+    await insertSessionEvent(client, sessionId, 'running', { restarted: true, containerName: cname });
   } catch (err) {
+    console.error('[Lab] Restart failed:', err);
+    logger.error({ err: err.message, sessionId }, 'Restart startContainer failed — marking failed');
+    await client.query(
+      `UPDATE lab_sessions SET state = 'failed', last_error = $1 WHERE id = $2`,
+      [err.message, sessionId]
+    );
+    await insertSessionEvent(client, sessionId, 'failed', { error: err.message });
+  } finally {
     client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /lab/sessions/:id/status
+// Probe session state, container readiness, and port 8888 probe
+// ─────────────────────────────────────────────────────────────
+async function getSessionStatus(req, res, next) {
+  try {
+    const userId = req.user?.id || req.headers['x-user-id'];
+    const userRole = req.user?.role || req.headers['x-user-role'];
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT ls.*, lp.name AS profile_name, lp.key AS profile_key
+       FROM lab_sessions ls
+       JOIN lab_profiles lp ON ls.profile_id = lp.id
+       WHERE ls.id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+    }
+
+    const session = rows[0];
+
+    // Project member or owner check
+    if (session.user_id !== userId && userRole !== 'professor' && userRole !== 'admin') {
+      const memberRow = await pool.query(
+        `SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2`,
+        [session.project_id, userId]
+      );
+      if (memberRow.rows.length === 0) {
+        return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to view this session' } });
+      }
+    }
+
+    const driver = getDriver();
+    const instName = session.gce_instance_name || session.cloud_run_service || session.instance_name || session.id;
+    let driverStatus = null;
+    let isReady = false;
+
+    try {
+      if (typeof driver.status === 'function') {
+        const rawStatus = await driver.status(instName, session.gce_zone);
+        if (typeof rawStatus === 'object' && rawStatus !== null) {
+          driverStatus = rawStatus.status;
+          isReady = !!rawStatus.ready;
+        } else {
+          driverStatus = rawStatus;
+          isReady = rawStatus === 'running';
+        }
+      }
+    } catch (_) {}
+
+    // Decrypt token for owner if available
+    let jupyterToken = undefined;
+    let sessionUrl = session.url;
+    let port = undefined;
+    const isOwner = session.user_id === userId;
+
+    if (isOwner && session.jupyter_token_enc) {
+      const tokenKey = process.env.LAB_TOKEN_KEY || 'default_token_key';
+      jupyterToken = _decryptToken(session.jupyter_token_enc, tokenKey);
+    }
+    if (sessionUrl) {
+      try {
+        const parsed = new URL(sessionUrl);
+        if (parsed.port) port = parseInt(parsed.port, 10);
+      } catch (_) {}
+      if (isOwner && jupyterToken && !sessionUrl.includes('token=')) {
+        sessionUrl = `${sessionUrl}/lab?token=${jupyterToken}`;
+      }
+    }
+
+    res.json({
+      session: {
+        id: session.id,
+        name: session.name,
+        state: session.state,
+        status: (session.state || '').toUpperCase(),
+        driverStatus,
+        ready: driverStatus !== null ? isReady : (session.state === 'running'),
+        url: isOwner ? sessionUrl : undefined,
+        token: isOwner ? jupyterToken : undefined,
+        port: isOwner ? port : undefined,
+        started_at: session.started_at,
+        stopped_at: session.stopped_at,
+        last_error: session.last_error,
+        instance_name: instName,
+      },
+    });
+  } catch (err) {
     next(err);
   }
 }
@@ -1654,6 +2158,7 @@ module.exports = {
   getSessions,
   getActiveSession,
   getSession,
+  getSessionStatus,
   pauseSession,
   resumeSession,
   stopSession,

@@ -30,6 +30,7 @@ export const LabSessionsList = ({
   const [deleteSessionTarget, setDeleteSessionTarget] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [restartingId, setRestartingId] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const formatRuntime = (seconds) => {
     if (!seconds || seconds <= 0) return '0m';
@@ -42,11 +43,13 @@ export const LabSessionsList = ({
   const handlePause = async (e, sessionId) => {
     e.stopPropagation();
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.pauseSession(sessionId);
       if (onRefresh) onRefresh();
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to pause session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to pause session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -55,11 +58,13 @@ export const LabSessionsList = ({
   const handleResume = async (e, sessionId) => {
     e.stopPropagation();
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.resumeSession(sessionId);
       if (onRefresh) onRefresh();
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to resume session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to resume session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -68,12 +73,14 @@ export const LabSessionsList = ({
   const handleStopConfirm = async ({ exportNotebooks }) => {
     if (!stopSessionTarget) return;
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.stopSession(stopSessionTarget.id, exportNotebooks);
       setStopSessionTarget(null);
       if (onRefresh) onRefresh();
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to stop session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to stop session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -82,18 +89,21 @@ export const LabSessionsList = ({
   const handleRestart = async (e, session) => {
     e.stopPropagation();
     try {
+      setErrorMessage(null);
       setRestartingId(session.id);
       setActionLoading(true);
       const res = await labApi.restartSession(session.id);
+      const updatedSession = res?.session || res;
       if (onRestartSession) {
-        onRestartSession(res);
+        onRestartSession(updatedSession);
       } else if (onSelectSession) {
-        onSelectSession(res);
+        onSelectSession(updatedSession);
       } else if (onRefresh) {
         onRefresh();
       }
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to restart session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to restart session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
       setRestartingId(null);
@@ -103,12 +113,14 @@ export const LabSessionsList = ({
   const handleDeleteConfirm = async () => {
     if (!deleteSessionTarget) return;
     try {
+      setErrorMessage(null);
       setActionLoading(true);
       await labApi.deleteSession(deleteSessionTarget.id);
       setDeleteSessionTarget(null);
       if (onRefresh) onRefresh();
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to delete session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to delete session';
+      setErrorMessage(msg);
     } finally {
       setActionLoading(false);
     }
@@ -116,15 +128,28 @@ export const LabSessionsList = ({
 
   if (sessions.length === 0) {
     return (
-      <div className="p-12 text-center border border-dashed border-border rounded-xl bg-surface/50 space-y-3">
-        <div className="w-12 h-12 rounded-full bg-surface-2 border border-border flex items-center justify-center mx-auto text-txt-muted">
-          <Layers className="w-6 h-6" />
-        </div>
-        <div className="space-y-1">
-          <h4 className="text-sm font-semibold text-txt">No Testing Sessions</h4>
-          <p className="text-xs text-txt-muted max-w-sm mx-auto">
-            You don't have any active or saved testing environments. Choose a container profile above to launch an interactive session.
-          </p>
+      <div className="space-y-3">
+        {errorMessage && (
+          <div className="p-3.5 bg-danger/10 border border-danger/30 text-xs text-danger rounded-lg flex items-center justify-between gap-3 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span className="font-medium">{errorMessage}</span>
+            </div>
+            <button onClick={() => setErrorMessage(null)} className="text-danger hover:underline font-semibold flex-shrink-0 cursor-pointer">
+              Dismiss
+            </button>
+          </div>
+        )}
+        <div className="p-12 text-center border border-dashed border-border rounded-xl bg-surface/50 space-y-3">
+          <div className="w-12 h-12 rounded-full bg-surface-2 border border-border flex items-center justify-center mx-auto text-txt-muted">
+            <Layers className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-sm font-semibold text-txt">No Testing Sessions</h4>
+            <p className="text-xs text-txt-muted max-w-sm mx-auto">
+              You don't have any active or saved testing environments. Choose a container profile above to launch an interactive session.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -132,12 +157,24 @@ export const LabSessionsList = ({
 
   return (
     <div className="space-y-3">
+      {errorMessage && (
+        <div className="p-3.5 bg-danger/10 border border-danger/30 text-xs text-danger rounded-lg flex items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span className="font-medium">{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="text-danger hover:underline font-semibold flex-shrink-0 cursor-pointer">
+            Dismiss
+          </button>
+        </div>
+      )}
       {sessions.map((s) => {
         const isAiml = s.profile_category === 'ai_ml';
-        const isRunning = s.state === 'running';
-        const isPaused = s.state === 'paused';
-        const isStopped = s.state === 'stopped';
-        const isFailed = s.state === 'failed';
+        const sessionState = s.state || s.status;
+        const isRunning = sessionState === 'running';
+        const isPaused = sessionState === 'paused';
+        const isStopped = sessionState === 'stopped';
+        const isFailed = sessionState === 'failed';
 
         return (
           <Card
@@ -168,7 +205,7 @@ export const LabSessionsList = ({
                     pulse={isRunning}
                   />
                   <span className="uppercase tracking-wider font-mono text-[10px] text-txt">
-                    {s.state}
+                    {sessionState}
                   </span>
                 </div>
 

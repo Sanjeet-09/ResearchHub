@@ -1,8 +1,20 @@
 node_modules/
 dist/
 .uploads/
+# Environment and secrets
 .env
 .env.local
+.env.*
+!.env.example
+!frontend/.env.example
+*.secrets
+*.env.secrets
+secrets.env
+.env.secrets
+.env.production
+secretes.txt
+secrets.txt
+
 pgdata/
 .antigravityMem/
 .recall_scratchpad.md
@@ -13,6 +25,12 @@ db/*
 !db/seed.sql
 .lab-workspaces/
 ui.md
-*.sh 
+*.sh
 *.ps1
+!scripts/*.sh
+!scripts/*.ps1
 *.txt
+db/
+.claude/
+.agents/
+.firebase/

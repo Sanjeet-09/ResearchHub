@@ -448,7 +448,7 @@ function startEmbeddedServer({ sessionId, port, jupyterToken, workspaceDir, prof
       }
 
       // 2. Save notebook endpoint
-      if (pathname === '/_lab/save' && req.method === 'POST') {
+      if ((pathname === '/_lab/save' || pathname.endsWith('/_lab/save')) && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
@@ -467,7 +467,7 @@ function startEmbeddedServer({ sessionId, port, jupyterToken, workspaceDir, prof
       }
 
       // 3. Kernel idle status endpoint (used by reconciler)
-      if (pathname === '/api/kernels') {
+      if (pathname === '/api/kernels' || pathname.endsWith('/api/kernels')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify([
           {
@@ -479,8 +479,16 @@ function startEmbeddedServer({ sessionId, port, jupyterToken, workspaceDir, prof
         ]));
       }
 
-      // 4. Default: JupyterLab UI at / or /lab
-      if (pathname === '/' || pathname === '/lab' || pathname.startsWith('/lab')) {
+      // 4. Default: JupyterLab UI at / or /lab or proxy subpaths
+      if (
+        pathname === '/' ||
+        pathname === '/lab' ||
+        pathname.startsWith('/lab') ||
+        pathname.endsWith('/proxy') ||
+        pathname.endsWith('/proxy/') ||
+        pathname.includes('/proxy/lab') ||
+        pathname.includes('/lab')
+      ) {
         const html = getJupyterLabHtml({ sessionId, profileKey, jupyterToken, workspaceDir });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         return res.end(html);

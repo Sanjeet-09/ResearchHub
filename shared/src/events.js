@@ -1,14 +1,38 @@
 const http = require('http');
+const https = require('https');
 const logger = require('./logger');
 
-const ACTIVITY_SERVICE_URL = process.env.SERVICE_URL_ACTIVITY || 'http://localhost:5008';
-const NOTIFICATION_SERVICE_URL = process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009';
+const ACTIVITY_SERVICE_URL = process.env.ACTIVITY_SERVICE_URL || process.env.SERVICE_URL_ACTIVITY || 'http://localhost:5008';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009';
+
+const getTransport = (parsedUrl) => (parsedUrl.protocol === 'https:' ? https : http);
+const getPort = (parsedUrl, defaultHttpPort) => parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : defaultHttpPort);
 
 /**
  * Emit an activity event to activity-service /internal/events
  * Fire-and-forget with 2s timeout. Failure is logged but never throws.
  */
 function emitActivityEvent({ projectId, actorId, action, entityType, entityId, summary, metadata = {} }) {
+  // Direct DB insertion fallback / dual-write
+  try {
+    const { pool } = require('./db');
+    if (pool && typeof pool.query === 'function') {
+      pool.query(
+        `INSERT INTO activity_events (project_id, actor_id, action, entity_type, entity_id, summary, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          projectId || null,
+          actorId || null,
+          action,
+          entityType || null,
+          entityId || null,
+          summary || null,
+          JSON.stringify(metadata || {}),
+        ]
+      ).catch(() => {});
+    }
+  } catch (_) {}
+
   try {
     const payload = JSON.stringify({
       projectId,
@@ -22,10 +46,10 @@ function emitActivityEvent({ projectId, actorId, action, entityType, entityId, s
 
     const parsedUrl = new URL(`${ACTIVITY_SERVICE_URL}/internal/events`);
 
-    const req = http.request(
+    const req = getTransport(parsedUrl).request(
       {
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 5008,
+        port: getPort(parsedUrl, 5008),
         path: parsedUrl.pathname,
         method: 'POST',
         headers: {
@@ -72,10 +96,10 @@ function emitNotification({ userId, userIds, type, title, body, link }) {
 
     const parsedUrl = new URL(`${NOTIFICATION_SERVICE_URL}/internal/notify`);
 
-    const req = http.request(
+    const req = getTransport(parsedUrl).request(
       {
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 5009,
+        port: getPort(parsedUrl, 5009),
         path: parsedUrl.pathname,
         method: 'POST',
         headers: {
@@ -124,10 +148,10 @@ function emitAuditLog({ actorId, action, entityType, entityId, ip, userAgent, be
 
     const parsedUrl = new URL(`${ACTIVITY_SERVICE_URL}/internal/audit`);
 
-    const req = http.request(
+    const req = getTransport(parsedUrl).request(
       {
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 5008,
+        port: getPort(parsedUrl, 5008),
         path: parsedUrl.pathname,
         method: 'POST',
         headers: {

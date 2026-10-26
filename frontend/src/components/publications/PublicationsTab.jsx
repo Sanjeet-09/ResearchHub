@@ -238,9 +238,12 @@ export const PublicationsTab = ({ projectId, isMember, isLead }) => {
         title: newTitle.trim(),
         authors: newAuthors.trim() || null,
         venue: newVenue.trim() || null,
+        venue_journal: newVenue.trim() || null,
         doi: newDoi.trim() || null,
         status: newStatus,
         publishedOn: newPublishedOn || null,
+        published_on: newPublishedOn || null,
+        publication_date: newPublishedOn || null,
       });
 
       setIsNewOpen(false);
@@ -263,10 +266,11 @@ export const PublicationsTab = ({ projectId, isMember, isLead }) => {
     setEditingPub(pub);
     setEditTitle(pub.title || '');
     setEditAuthors(pub.authors || '');
-    setEditVenue(pub.venue || '');
+    setEditVenue(pub.venue_journal || pub.venue || '');
     setEditDoi(pub.doi || '');
     setEditStatus(pub.status || 'draft');
-    setEditPublishedOn(pub.published_on ? pub.published_on.split('T')[0] : '');
+    const dateVal = pub.publication_date || pub.published_on;
+    setEditPublishedOn(dateVal ? String(dateVal).split('T')[0] : '');
     setIsEditOpen(true);
   };
 
@@ -280,9 +284,12 @@ export const PublicationsTab = ({ projectId, isMember, isLead }) => {
         title: editTitle.trim(),
         authors: editAuthors.trim() || null,
         venue: editVenue.trim() || null,
+        venue_journal: editVenue.trim() || null,
         doi: editDoi.trim() || null,
         status: editStatus,
         publishedOn: editPublishedOn || null,
+        published_on: editPublishedOn || null,
+        publication_date: editPublishedOn || null,
       });
       setIsEditOpen(false);
       setEditingPub(null);
@@ -450,16 +457,16 @@ export const PublicationsTab = ({ projectId, isMember, isLead }) => {
                     <Badge variant={badgeVariant} className="capitalize text-[10px] tracking-wider px-2 py-0.5">
                       {pub.status}
                     </Badge>
-                    {pub.venue && (
+                    {(pub.venue_journal || pub.venue) && (
                       <span className="text-xs font-semibold text-accent flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
-                        {pub.venue}
+                        {pub.venue_journal || pub.venue}
                       </span>
                     )}
-                    {pub.published_on && (
+                    {(pub.publication_date || pub.published_on) && (
                       <span className="text-[11px] font-mono text-txt-faint flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
-                        {new Date(pub.published_on).toLocaleDateString()}
+                        {new Date(pub.publication_date || pub.published_on).toLocaleDateString()}
                       </span>
                     )}
                   </div>

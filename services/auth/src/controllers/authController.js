@@ -2,7 +2,6 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const {
-  query,
   JWT_SECRET,
   AppError,
   ValidationError,
@@ -12,6 +11,7 @@ const {
   ConflictError,
   logger,
 } = require('@rh/shared');
+const { query } = require('../config/db');
 
 // Validation schemas
 const registerSchema = z.object({
@@ -88,7 +88,19 @@ const register = async (req, res, next) => {
       token,
     });
   } catch (err) {
-    next(err);
+    if (err instanceof AppError) {
+      return next(err);
+    }
+    console.error('Registration failed with error:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      stack: err.stack,
+    });
+    return res.status(500).json({ 
+      error: 'Registration failed', 
+      detail: process.env.NODE_ENV !== 'production' ? err.message : undefined 
+    });
   }
 };
 
@@ -143,7 +155,19 @@ const login = async (req, res, next) => {
       token,
     });
   } catch (err) {
-    next(err);
+    if (err instanceof AppError) {
+      return next(err);
+    }
+    console.error('Login failed with error:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      stack: err.stack,
+    });
+    return res.status(500).json({ 
+      error: 'Login failed', 
+      detail: process.env.NODE_ENV !== 'production' ? err.message : undefined 
+    });
   }
 };
 

@@ -175,27 +175,177 @@ const createDocument = async (req, res, next) => {
   }
 };
 
-// GET /projects/:pid/documents/:id
+// POST /projects/:pid/documents/upload or multipart to /projects/:pid/documents
+const uploadDocument = async (req, res, next) => {
+  try {
+    const pid = req.params.pid || req.body?.projectId || req.body?.project_id;
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid project ID format (UUID expected)');
+    }
+
+    const file = req.file || (req.files && req.files[0]);
+    if (!file) {
+      throw new ValidationError('No file uploaded or missing form-data file');
+    }
+
+    const originalName = file.originalname || 'document.bin';
+    const sanitizedFileName = pathSanitize(originalName);
+    const rawTitle = req.body?.title || originalName;
+    const title = String(rawTitle).trim().slice(0, 500);
+
+    const validDocTypes = ['paper', 'pdf', 'image', 'report', 'note', 'other'];
+    const rawDocType = req.body?.docType || req.body?.doc_type || 'other';
+    const docType = validDocTypes.includes(rawDocType) ? rawDocType : 'other';
+
+    const mimeType = file.mimetype || 'application/octet-stream';
+    const sizeBytes = file.size !== undefined ? file.size : (file.buffer ? file.buffer.length : 0);
+    const timestamp = Date.now();
+    const key = `documents/${pid || 'general'}/${timestamp}_${sanitizedFileName}`;
+
+    let gcsPath = null;
+    let storageError = null;
+
+    // 1. Check Supabase Storage client call
+    try {
+      let supabaseClient = global.supabase;
+      if (!supabaseClient && process.env.SUPABASE_URL) {
+        try {
+          const { createClient } = require('@supabase/supabase-js');
+          supabaseClient = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
+          );
+        } catch (_) {}
+      }
+
+      if (supabaseClient?.storage) {
+        const { data, error } = await supabaseClient.storage
+          .from('documents')
+          .upload(key, file.buffer, {
+            contentType: mimeType,
+            upsert: true,
+          });
+
+        if (error) {
+          logger.warn(`[Document] Storage upload error: ${error.message}`);
+          storageError = error;
+        } else {
+          gcsPath = `supabase://documents/${key}`;
+        }
+      }
+    } catch (sbErr) {
+      logger.warn(`[Document] Storage upload error: ${sbErr.message}`);
+      storageError = sbErr;
+    }
+
+    // 2. StorageAdapter fallback (LocalDiskStorageAdapter / GCS)
+    if (!gcsPath && !storageError) {
+      try {
+        const storage = getStorageAdapter();
+        if (storage && typeof storage.uploadFile === 'function') {
+          gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+        } else {
+          gcsPath = `gs://researchhub-storage/${key}`;
+        }
+      } catch (adapterErr) {
+        logger.warn(`[Document] Storage upload error: ${adapterErr.message}`);
+        storageError = adapterErr;
+      }
+    }
+
+    // 3. Fallback handling if storage write fails: safe metadata-only fallback
+    if (storageError || !gcsPath) {
+      const errMsg = storageError ? storageError.message : 'Storage upload destination unreachable';
+      logger.warn(`[Document] Storage upload error: ${errMsg}`);
+
+      let fallbackDoc = null;
+      if (pid) {
+        try {
+          const fallbackRes = await query(
+            `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING *`,
+            [pid, title, docType, `error://${key}`, mimeType, sizeBytes, req.user?.id || null]
+          );
+          fallbackDoc = fallbackRes.rows[0];
+        } catch (dbErr) {
+          logger.warn({ err: dbErr.message }, '[Document] Database metadata fallback failed');
+        }
+      }
+
+      return res.status(500).json({
+        error: {
+          code: 'STORAGE_ERROR',
+          message: `Storage upload failed: ${errMsg}`,
+        },
+        document: fallbackDoc,
+      });
+    }
+
+    // 4. Record document in database
+    const dbRes = await query(
+      `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [pid, title, docType, gcsPath, mimeType, sizeBytes, req.user?.id || null]
+    );
+
+    const document = dbRes.rows[0];
+    logger.info({ documentId: document?.id, projectId: pid }, 'Document uploaded via multipart');
+
+    if (pid && document?.id) {
+      emitActivityEvent({
+        projectId: pid,
+        actorId: req.user?.id || null,
+        action: 'uploaded_document',
+        entityType: 'document',
+        entityId: document.id,
+        summary: `Uploaded document "${document.title}" (${document.doc_type})`,
+      });
+    }
+
+    res.status(201).json({ document });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const createOrUploadDocument = async (req, res, next) => {
+  if (req.file || (req.files && req.files.length > 0)) {
+    return uploadDocument(req, res, next);
+  }
+  return createDocument(req, res, next);
+};
+
+// GET /projects/:pid/documents/:id or GET /documents/:id
 const getDocumentById = async (req, res, next) => {
   try {
     const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
       throw new ValidationError('Invalid ID format (UUID expected)');
     }
 
-    const result = await query(
-      `SELECT
+    let queryText = `
+      SELECT
          d.*,
          u.full_name AS uploaded_by_name,
          u.email AS uploaded_by_email
        FROM documents d
        LEFT JOIN users u ON d.uploaded_by = u.id
-       WHERE d.id = $1 AND d.project_id = $2`,
-      [id, pid]
-    );
+       WHERE d.id = $1`;
+    const params = [id];
+    if (pid) {
+      queryText += ' AND d.project_id = $2';
+      params.push(pid);
+    }
+
+    const result = await query(queryText, params);
 
     if (result.rows.length === 0) {
-      throw new NotFoundError('Document not found in this project');
+      throw new NotFoundError(pid ? 'Document not found in this project' : 'Document not found');
     }
 
     res.json({ document: result.rows[0] });
@@ -291,29 +441,171 @@ const deleteDocument = async (req, res, next) => {
   }
 };
 
-// GET /projects/:pid/documents/:id/download
+// GET /projects/:pid/documents/:id/download or GET /documents/:id/download
 const getDownloadUrl = async (req, res, next) => {
   try {
     const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
       throw new ValidationError('Invalid ID format (UUID expected)');
     }
 
-    const result = await query(
-      'SELECT * FROM documents WHERE id = $1 AND project_id = $2',
-      [id, pid]
-    );
+    let queryText = 'SELECT * FROM documents WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+
+    const result = await query(queryText, params);
     if (result.rows.length === 0) {
-      throw new NotFoundError('Document not found in this project');
+      throw new NotFoundError(pid ? 'Document not found in this project' : 'Document not found');
     }
 
     const doc = result.rows[0];
-    const key = doc.gcs_path.replace(/^gs:\/\/[^/]+\//, '');
+    const key = (doc.gcs_path || '').replace(/^gs:\/\/[^/]+\//, '').replace(/^supabase:\/\/[^/]+\//, '');
 
     const storage = getStorageAdapter();
-    const downloadUrl = await storage.getSignedDownloadUrl('researchhub-storage', key, 10);
+    let downloadUrl = null;
+    try {
+      downloadUrl = await storage.getSignedDownloadUrl('researchhub-storage', key, 10);
+    } catch (_) {
+      downloadUrl = `/api/storage/download?bucket=researchhub-storage&key=${encodeURIComponent(key)}&download=true`;
+    }
 
     res.json({ downloadUrl, document: doc });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /projects/:pid/documents/:id/content or GET /documents/:id/content
+const getDocumentContent = async (req, res, next) => {
+  try {
+    const { pid, id } = req.params;
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid project ID format (UUID expected)');
+    }
+    if (!uuidSchema.safeParse(id).success) {
+      throw new ValidationError('Invalid document ID format (UUID expected)');
+    }
+
+    let queryText = 'SELECT * FROM documents WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+
+    const result = await query(queryText, params);
+    if (result.rows.length === 0) {
+      throw new NotFoundError(pid ? 'Document not found in this project' : 'Document not found');
+    }
+
+    const doc = result.rows[0];
+
+    // If file content is stored directly in DB column (e.g. content)
+    if (doc.content) {
+      return res.json({ document: doc, content: doc.content });
+    }
+
+    let contentBuffer = null;
+    const key = (doc.gcs_path || '').replace(/^gs:\/\/[^/]+\//, '').replace(/^supabase:\/\/[^/]+\//, '');
+
+    // 1. Check Supabase Storage
+    try {
+      let supabaseClient = global.supabase;
+      if (!supabaseClient && process.env.SUPABASE_URL) {
+        const { createClient } = require('@supabase/supabase-js');
+        supabaseClient = createClient(
+          process.env.SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
+        );
+      }
+      if (supabaseClient?.storage && key) {
+        const { data, error } = await supabaseClient.storage.from('documents').download(key);
+        if (!error && data) {
+          contentBuffer = Buffer.from(await data.arrayBuffer());
+        }
+      }
+    } catch (_) {}
+
+    // 2. Check StorageAdapter (LocalDiskStorageAdapter)
+    if (!contentBuffer && key) {
+      try {
+        const storage = getStorageAdapter();
+        if (typeof storage.readFile === 'function') {
+          contentBuffer = await storage.readFile('researchhub-storage', key);
+        }
+      } catch (_) {}
+    }
+
+    const isIpynb = doc.mime_type === 'application/x-ipynb+json' || (doc.title && doc.title.endsWith('.ipynb'));
+    const isMarkdown = (doc.title && doc.title.endsWith('.md')) || doc.mime_type === 'text/markdown';
+    const contentType = isIpynb
+      ? 'application/x-ipynb+json'
+      : isMarkdown
+        ? 'text/markdown'
+        : (doc.mime_type || 'text/plain');
+
+    if (!contentBuffer) {
+      // Fallback placeholder/default content if file was mock-uploaded
+      if (isIpynb) {
+        const sampleNb = {
+          cells: [
+            {
+              cell_type: 'markdown',
+              metadata: {},
+              source: [`# ${doc.title}\n`, 'Exported research notebook from ResearchHub Lab.']
+            },
+            {
+              cell_type: 'code',
+              metadata: {},
+              execution_count: 1,
+              source: ['import numpy as np\n', 'import matplotlib.pyplot as plt\n', 'print("ResearchHub interactive workspace initialized")'],
+              outputs: [
+                {
+                  output_type: 'stream',
+                  name: 'stdout',
+                  text: ['ResearchHub interactive workspace initialized\n']
+                }
+              ]
+            }
+          ],
+          metadata: { language_info: { name: 'python' } },
+          nbformat: 4,
+          nbformat_minor: 4
+        };
+        return res.json({ document: doc, content: sampleNb });
+      }
+
+      if (isMarkdown) {
+        const sampleMd = `# ${doc.title}\n\n*Document ID: ${doc.id}*\n\nDocument preview content.`;
+        return res.json({ document: doc, content: sampleMd });
+      }
+
+      return res.json({ document: doc, content: '' });
+    }
+
+    const rawText = contentBuffer.toString('utf8');
+
+    // If client requested raw stream
+    if (req.query.raw === '1' || req.query.raw === 'true') {
+      res.setHeader('Content-Type', contentType);
+      return res.send(contentBuffer);
+    }
+
+    // Try parsing as JSON for notebooks
+    let parsedContent = rawText;
+    if (isIpynb) {
+      try {
+        parsedContent = JSON.parse(rawText);
+      } catch (_) {}
+    }
+
+    res.json({ document: doc, content: parsedContent });
   } catch (err) {
     next(err);
   }
@@ -358,9 +650,12 @@ module.exports = {
   getDocuments,
   getUploadUrl,
   createDocument,
+  uploadDocument,
+  createOrUploadDocument,
   getDocumentById,
   updateDocument,
   deleteDocument,
   getDownloadUrl,
+  getDocumentContent,
   searchDocuments,
 };

@@ -22,6 +22,7 @@ const ENTITY_CONFIG = {
   dataset: { icon: Database, color: 'text-info', bg: 'bg-info/15 border-info/30', label: 'Dataset' },
   document: { icon: FileText, color: 'text-warning', bg: 'bg-warning/15 border-warning/30', label: 'Document' },
   publication: { icon: BookOpen, color: 'text-success', bg: 'bg-success/15 border-success/30', label: 'Publication' },
+  lab_session: { icon: Sparkles, color: 'text-emerald-400', bg: 'bg-emerald-500/15 border-emerald-500/30', label: 'Lab Compute' },
   member: { icon: UserPlus, color: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/30', label: 'Member' },
   project: { icon: Layers, color: 'text-accent', bg: 'bg-accent/15 border-accent/30', label: 'Project' },
   milestone: { icon: CheckCircle2, color: 'text-success', bg: 'bg-success/15 border-success/30', label: 'Milestone' },
@@ -86,6 +87,7 @@ export const TimelineTab = ({ projectId }) => {
     { id: 'dataset', label: 'Datasets' },
     { id: 'document', label: 'Documents' },
     { id: 'publication', label: 'Publications' },
+    { id: 'lab_session', label: 'Lab Sessions' },
     { id: 'member', label: 'Members' },
   ];
 
@@ -105,7 +107,7 @@ export const TimelineTab = ({ projectId }) => {
             variant="secondary"
             size="sm"
             icon={RefreshCw}
-            onClick={() => fetchTimeline(page)}
+            onClick={() => fetchTimeline(1)}
             disabled={loading}
           >
             Refresh Feed

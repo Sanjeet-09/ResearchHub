@@ -1,10 +1,13 @@
+if (process.env.NODE_ENV !== 'production') {
+  try { require('dotenv').config(); } catch (_) {}
+}
 const app = require('./app');
 const { logger } = require('@rh/shared');
 
 const PORT = process.env.PORT || 5008;
 
 const startServer = () => {
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info({ port: PORT, service: 'activity' }, `Activity Service running on port ${PORT}`);
   });
 

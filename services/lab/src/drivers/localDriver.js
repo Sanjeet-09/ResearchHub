@@ -257,6 +257,21 @@ async function deleteContainer(sessionId) {
 }
 
 /**
+ * Start an existing stopped Docker container.
+ */
+async function startContainer(sessionId) {
+  const name = containerName(sessionId);
+  try {
+    await execFileAsync('docker', ['start', name], { timeout: 10000 });
+    logger.info({ name }, 'Lab container started');
+    return { containerName: name };
+  } catch (err) {
+    logger.warn({ err: err.message, name }, 'Failed to start Docker container');
+    throw err;
+  }
+}
+
+/**
  * Get container status.
  * @returns {'running'|'exited'|'not_found'|string}
  */
@@ -425,6 +440,8 @@ async function areAllKernelsIdle(url, token, idleMinutes) {
 
 module.exports = {
   create,
+  createContainer: create,
+  startContainer,
   deleteContainer,
   status,
   list,

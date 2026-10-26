@@ -6,6 +6,7 @@ const mockQuery = jest.fn();
 const mockGetSignedUploadUrl = jest.fn();
 const mockGetSignedDownloadUrl = jest.fn();
 const mockDeleteFile = jest.fn();
+const mockUploadFile = jest.fn();
 
 jest.mock('@rh/shared', () => {
   const original = jest.requireActual('@rh/shared');
@@ -16,6 +17,7 @@ jest.mock('@rh/shared', () => {
       getSignedUploadUrl: mockGetSignedUploadUrl,
       getSignedDownloadUrl: mockGetSignedDownloadUrl,
       deleteFile: mockDeleteFile,
+      uploadFile: mockUploadFile,
     }),
   };
 });
@@ -195,6 +197,64 @@ describe('Document Service', () => {
         });
 
       expect(res.status).toBe(403);
+    });
+
+    it('uploads a document file via multipart/form-data for member', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [memberRow] }) // requireProjectRole
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: DOC_ID,
+              project_id: PID,
+              title: 'Dataset Analysis',
+              doc_type: 'report',
+              gcs_path: 'gs://researchhub-storage/documents/sample.pdf',
+              size_bytes: 16,
+            },
+          ],
+        }); // insert
+
+      mockUploadFile.mockResolvedValueOnce('gs://researchhub-storage/documents/sample.pdf');
+
+      const res = await request(app)
+        .post(`/projects/${PID}/documents`)
+        .set('Authorization', `Bearer ${memberToken}`)
+        .field('title', 'Dataset Analysis')
+        .field('docType', 'report')
+        .attach('file', Buffer.from('PDF file content'), 'sample.pdf');
+
+      expect(res.status).toBe(201);
+      expect(res.body.document.id).toBe(DOC_ID);
+      expect(mockUploadFile).toHaveBeenCalled();
+    });
+
+    it('falls back to metadata record and returns 500 cleanly when storage fails', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [memberRow] }) // requireProjectRole
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: DOC_ID,
+              project_id: PID,
+              title: 'Failed File',
+              doc_type: 'other',
+              gcs_path: 'error://documents/sample.txt',
+            },
+          ],
+        }); // fallback insert
+
+      mockUploadFile.mockRejectedValueOnce(new Error('Bucket documents does not exist'));
+
+      const res = await request(app)
+        .post(`/projects/${PID}/documents`)
+        .set('Authorization', `Bearer ${memberToken}`)
+        .attach('file', Buffer.from('hello world'), 'sample.txt');
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('STORAGE_ERROR');
+      expect(res.body.error.message).toContain('Bucket documents does not exist');
+      expect(res.body.document).toBeDefined();
     });
   });
 

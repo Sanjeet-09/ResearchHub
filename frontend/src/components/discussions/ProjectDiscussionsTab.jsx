@@ -5,6 +5,7 @@ import { projectApi } from '../../services/api';
 import { Card, Button, Avatar, Skeleton, Badge } from '../ui';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
+import { useMessageNotifications, requestNotificationPermission } from '../../hooks/useMessageNotifications';
 import {
   MessageSquare,
   Send,
@@ -15,7 +16,13 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-export const ProjectDiscussionsTab = ({ projectId, isMember, isLead }) => {
+export const ProjectDiscussionsTab = ({
+  projectId,
+  isMember,
+  isLead,
+  isActive = true,
+  onUnreadChange,
+}) => {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [messageText, setMessageText] = useState('');
@@ -36,6 +43,21 @@ export const ProjectDiscussionsTab = ({ projectId, isMember, isLead }) => {
     refetchInterval: 8000,
     staleTime: 5000,
   });
+
+  // Out-of-focus desktop notifications, title flashing, and navigation badge sync
+  useMessageNotifications({
+    messages,
+    currentUser,
+    isActive,
+    onUnreadChange,
+  });
+
+  // Request browser notification permissions when opening or interacting with project discussion
+  useEffect(() => {
+    if (isActive) {
+      requestNotificationPermission();
+    }
+  }, [isActive]);
 
   // Mutation for sending a message
   const sendMutation = useMutation({
@@ -248,6 +270,8 @@ export const ProjectDiscussionsTab = ({ projectId, isMember, isLead }) => {
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onFocus={requestNotificationPermission}
+                  onClick={requestNotificationPermission}
                   placeholder="Write a message... (Press Enter to send, Shift+Enter for newline)"
                   disabled={sendMutation.isPending}
                   className="w-full bg-surface-2 border border-border rounded-[8px] p-3 text-xs sm:text-sm text-text placeholder:text-text-3 transition-colors duration-150 focus:border-border-strong focus:outline-none focus-visible:outline-2 focus-visible:outline-[#EDEDED] resize-none"

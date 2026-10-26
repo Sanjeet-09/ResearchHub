@@ -208,6 +208,25 @@ export const experimentApi = {
     return res.data.file;
   },
 
+  uploadFile: async (projectId, experimentId, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const endpoint = projectId
+      ? `/projects/${projectId}/experiments/${experimentId}/files`
+      : `/experiments/${experimentId}/files`;
+
+    const res = await api.post(endpoint, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data.file;
+  },
+
   getDownloadUrl: async (projectId, experimentId, fileId) => {
     const res = await api.get(`/projects/${projectId}/experiments/${experimentId}/files/${fileId}/download`);
     return res.data;
@@ -356,8 +375,19 @@ export const documentApi = {
   },
 
   getDownloadUrl: async (projectId, documentId) => {
-    const res = await api.get(`/projects/${projectId}/documents/${documentId}/download`);
+    const endpoint = projectId
+      ? `/projects/${projectId}/documents/${documentId}/download`
+      : `/documents/${documentId}/download`;
+    const res = await api.get(endpoint);
     return res.data.downloadUrl || res.data;
+  },
+
+  getDocumentContent: async (projectId, documentId) => {
+    const endpoint = projectId
+      ? `/projects/${projectId}/documents/${documentId}/content`
+      : `/documents/${documentId}/content`;
+    const res = await api.get(endpoint);
+    return res.data;
   },
 
   searchDocuments: async (projectId, q) => {
@@ -369,42 +399,50 @@ export const documentApi = {
 // Publication API endpoints
 export const publicationApi = {
   getPublications: async (projectId, params = {}) => {
-    const res = await api.get(`/projects/${projectId}/publications`, { params });
-    return res.data.publications;
+    const endpoint = projectId ? `/projects/${projectId}/publications` : '/publications';
+    const res = await api.get(endpoint, { params });
+    return res.data.publications || res.data;
   },
 
   getPublicationById: async (projectId, publicationId) => {
-    const res = await api.get(`/projects/${projectId}/publications/${publicationId}`);
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}` : `/publications/${publicationId}`;
+    const res = await api.get(endpoint);
     return res.data;
   },
 
   createPublication: async (projectId, pubData) => {
-    const res = await api.post(`/projects/${projectId}/publications`, pubData);
-    return res.data.publication;
+    const endpoint = projectId ? `/projects/${projectId}/publications` : '/publications';
+    const res = await api.post(endpoint, pubData);
+    return res.data.publication || res.data;
   },
 
   updatePublication: async (projectId, publicationId, pubData) => {
-    const res = await api.patch(`/projects/${projectId}/publications/${publicationId}`, pubData);
-    return res.data.publication;
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}` : `/publications/${publicationId}`;
+    const res = await api.patch(endpoint, pubData);
+    return res.data.publication || res.data;
   },
 
   deletePublication: async (projectId, publicationId) => {
-    const res = await api.delete(`/projects/${projectId}/publications/${publicationId}`);
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}` : `/publications/${publicationId}`;
+    const res = await api.delete(endpoint);
     return res.data;
   },
 
   addLink: async (projectId, publicationId, linkData) => {
-    const res = await api.post(`/projects/${projectId}/publications/${publicationId}/links`, linkData);
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}/links` : `/publications/${publicationId}/links`;
+    const res = await api.post(endpoint, linkData);
     return res.data;
   },
 
   removeLink: async (projectId, publicationId, linkData) => {
-    const res = await api.delete(`/projects/${projectId}/publications/${publicationId}/links`, { data: linkData });
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}/links` : `/publications/${publicationId}/links`;
+    const res = await api.delete(endpoint, { data: linkData });
     return res.data;
   },
 
   getTrace: async (projectId, publicationId) => {
-    const res = await api.get(`/projects/${projectId}/publications/${publicationId}/trace`);
+    const endpoint = projectId ? `/projects/${projectId}/publications/${publicationId}/trace` : `/publications/${publicationId}/trace`;
+    const res = await api.get(endpoint);
     return res.data;
   },
 };
@@ -570,6 +608,11 @@ export const labApi = {
 
   restartSession: async (id, data = {}) => {
     const res = await api.post(`/lab/sessions/${id}/restart`, data);
+    return res.data.session;
+  },
+
+  getSessionStatus: async (id) => {
+    const res = await api.get(`/lab/sessions/${id}/status`);
     return res.data.session;
   },
 

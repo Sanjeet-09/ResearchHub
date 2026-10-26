@@ -204,11 +204,18 @@ CREATE TABLE IF NOT EXISTS publications (
   title TEXT NOT NULL,
   authors TEXT,
   venue TEXT,
+  venue_journal TEXT,
   doi TEXT,
   status pub_status NOT NULL DEFAULT 'draft',
   published_on DATE,
-  created_by UUID REFERENCES users(id) ON DELETE SET NULL
+  publication_date DATE,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE publications ADD COLUMN IF NOT EXISTS venue_journal TEXT;
+ALTER TABLE publications ADD COLUMN IF NOT EXISTS publication_date DATE;
+ALTER TABLE publications ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 -- 13. Publication Links
 CREATE TABLE IF NOT EXISTS publication_links (
@@ -308,6 +315,8 @@ CREATE TABLE IF NOT EXISTS lab_sessions (
   name TEXT NOT NULL,
   state lab_state NOT NULL DEFAULT 'provisioning',
   cloud_run_service TEXT,
+  gce_instance_name TEXT,
+  gce_zone TEXT,
   url TEXT,
   jupyter_token_enc TEXT,
   workspace_prefix TEXT,

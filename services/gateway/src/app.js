@@ -7,12 +7,19 @@ const requestIdMiddleware = require('./middleware/requestId');
 const gatewayAuthMiddleware = require('./middleware/auth');
 const auditHookMiddleware = require('./middleware/audit');
 const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
-const { createServiceProxy } = require('./middleware/proxy');
+const { createServiceProxy, createLabProxy } = require('./middleware/proxy');
 
 const app = express();
 
-// 1. Core security & tracing headers
-app.use(helmet());
+// 1. Core security & tracing headers (frameguard disabled & CSP configured for embedded JupyterLab iframe)
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    frameguard: false,
+  })
+);
 app.use(requestIdMiddleware);
 
 // 2. CORS matching Frontend origin (supports localhost, 127.0.0.1, LAN IP)
@@ -23,6 +30,8 @@ app.use(cors({
       !origin ||
       process.env.NODE_ENV !== 'production' ||
       origin === frontendOrigin ||
+      origin.endsWith('.web.app') ||
+      origin.endsWith('.firebaseapp.com') ||
       origin.includes(':3000') ||
       origin.includes('localhost') ||
       origin.includes('127.0.0.1')
@@ -37,8 +46,16 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
 }));
 
-// 3. Body parsing (for JSON requests)
-app.use(express.json());
+// 3. Body parsing (bypassed for multipart/form-data, uploads, and Jupyter proxy to allow raw streaming)
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  const url = (req.originalUrl || req.url || '').toLowerCase();
+  const isUploadPath = url.includes('/files') || url.includes('/attachments') || url.includes('/upload') || url.includes('/proxy');
+  if (contentType.toLowerCase().includes('multipart/form-data') || isUploadPath) {
+    return next();
+  }
+  express.json()(req, res, next);
+});
 
 // 4. Gateway Health Check (public, no auth)
 app.get('/healthz', (req, res) => {
@@ -94,50 +111,60 @@ app.get('/api/storage/download', async (req, res, next) => {
 });
 
 // 9. Service Proxies
-// Auth Service Proxy (/api/auth/* -> dynamic SERVICE_URL_AUTH/auth/*)
-const authProxy = createServiceProxy(() => process.env.SERVICE_URL_AUTH || 'http://localhost:5001', '/api');
+// Auth Service Proxy (/api/auth/* -> dynamic SERVICE_URL_AUTH / AUTH_SERVICE_URL)
+const authProxy = createServiceProxy(() => process.env.AUTH_SERVICE_URL || process.env.SERVICE_URL_AUTH || 'http://localhost:5001', '/api');
 app.use('/api/auth', authProxy);
 
 // Experiment Service Proxy (/api/projects/:pid/experiments & /api/experiments -> experiment-service)
-const experimentProxy = createServiceProxy(() => process.env.SERVICE_URL_EXPERIMENT || 'http://localhost:5003', '/api');
+const experimentProxy = createServiceProxy(() => process.env.EXPERIMENT_SERVICE_URL || process.env.SERVICE_URL_EXPERIMENT || 'http://localhost:5003', '/api');
 app.use('/api/experiments', experimentProxy);
 app.use('/api/projects/:pid/experiments', experimentProxy);
 
 // Dataset Service Proxy (/api/projects/:pid/datasets -> dataset-service)
-const datasetProxy = createServiceProxy(() => process.env.SERVICE_URL_DATASET || 'http://localhost:5004', '/api');
+const datasetProxy = createServiceProxy(() => process.env.DATASET_SERVICE_URL || process.env.SERVICE_URL_DATASET || 'http://localhost:5004', '/api');
 app.use('/api/projects/:pid/datasets', datasetProxy);
 
-// Document Service Proxy (/api/projects/:pid/documents -> document-service)
-const documentProxy = createServiceProxy(() => process.env.SERVICE_URL_DOCUMENT || 'http://localhost:5005', '/api');
-app.use('/api/projects/:pid/documents', documentProxy);
+// Document Service Proxy (/api/projects/:pid/documents & /api/documents -> document-service)
+const documentProxy = createServiceProxy(() => process.env.DOCUMENT_SERVICE_URL || process.env.SERVICE_URL_DOCUMENT || 'http://localhost:5005', '/api');
+app.use('/api/documents', (req, res, next) => {
+  documentProxy(req, res, next);
+});
+app.use('/api/projects/:pid/documents', (req, res, next) => {
+  documentProxy(req, res, next);
+});
 
 // Publication Service Proxy (/api/publications & /api/projects/:pid/publications -> publication-service)
-const publicationProxy = createServiceProxy(() => process.env.SERVICE_URL_PUBLICATION || 'http://localhost:5006', '/api');
+const publicationProxy = createServiceProxy(() => process.env.PUBLICATION_SERVICE_URL || process.env.SERVICE_URL_PUBLICATION || 'http://localhost:5006', '/api');
 app.use('/api/publications', publicationProxy);
 app.use('/api/projects/:pid/publications', publicationProxy);
 
 // Equipment Service Proxy (/api/equipment & /api/reservations -> equipment-service)
-const equipmentProxy = createServiceProxy(() => process.env.SERVICE_URL_EQUIPMENT || 'http://localhost:5007', '/api');
+const equipmentProxy = createServiceProxy(() => process.env.EQUIPMENT_SERVICE_URL || process.env.SERVICE_URL_EQUIPMENT || 'http://localhost:5007', '/api');
 app.use('/api/equipment', equipmentProxy);
 app.use('/api/reservations', equipmentProxy);
 
 // Activity Service Proxy (/api/projects/:pid/timeline, /api/projects/:pid/presence, /api/activity & /api/audit -> activity-service)
-const activityProxy = createServiceProxy(() => process.env.SERVICE_URL_ACTIVITY || 'http://localhost:5008', '/api');
+const activityProxy = createServiceProxy(() => process.env.ACTIVITY_SERVICE_URL || process.env.SERVICE_URL_ACTIVITY || 'http://localhost:5008', '/api');
 app.use('/api/audit', activityProxy);
 app.use('/api/activity', activityProxy);
 app.use('/api/projects/:pid/timeline', activityProxy);
 app.use('/api/projects/:pid/presence', activityProxy);
 
 // Notification Service Proxy (/api/notifications -> notification-service)
-const notificationProxy = createServiceProxy(() => process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009', '/api');
+const notificationProxy = createServiceProxy(() => process.env.NOTIFICATION_SERVICE_URL || process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009', '/api');
 app.use('/api/notifications', notificationProxy);
 
+// Lab JupyterLab VM Proxy (/api/lab/sessions/:id/proxy/* -> target VM port 8888 with WebSocket support)
+const labJupyterProxy = createLabProxy();
+app.jupyterProxy = labJupyterProxy;
+app.use('/api/lab/sessions/:id/proxy', labJupyterProxy);
+
 // Lab Service Proxy (/api/lab/* -> lab-service)
-const labProxy = createServiceProxy(() => process.env.SERVICE_URL_LAB || 'http://localhost:5010', '/api');
+const labProxy = createServiceProxy(() => process.env.LAB_SERVICE_URL || process.env.SERVICE_URL_LAB || 'http://localhost:5010', '/api');
 app.use('/api/lab', labProxy);
 
-// Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT/projects/*)
-const projectProxy = createServiceProxy(() => process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
+// Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT / PROJECT_SERVICE_URL)
+const projectProxy = createServiceProxy(() => process.env.PROJECT_SERVICE_URL || process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');
 app.use('/api/projects', projectProxy);
 
 // 9. Unmatched API route handler

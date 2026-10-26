@@ -390,6 +390,77 @@ const getExperimentLinks = async (req, res, next) => {
   }
 };
 
+// POST /projects/:pid/experiments/:id/files or POST /experiments/:id/files
+const uploadExperimentFile = async (req, res, next) => {
+  try {
+    const { pid, id } = req.params;
+    if (!uuidSchema.safeParse(id).success) {
+      throw new ValidationError('Invalid experiment ID format (UUID expected)');
+    }
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid project ID format (UUID expected)');
+    }
+
+    const file = req.file || (req.files && req.files[0]);
+    if (!file) {
+      throw new ValidationError('No file was uploaded');
+    }
+
+    let queryText = 'SELECT id, project_id, title FROM experiments WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+    const expRes = await query(queryText, params);
+    if (expRes.rows.length === 0) {
+      throw new NotFoundError('Experiment not found');
+    }
+
+    const exp = expRes.rows[0];
+    const projectId = pid || exp.project_id;
+    const originalName = file.originalname || file.name || 'attachment';
+    const sanitizedFileName = pathSanitize(originalName);
+    const key = `experiments/${id}/${Date.now()}_${sanitizedFileName}`;
+    const mimeType = file.mimetype || file.type || 'application/octet-stream';
+    const sizeBytes = file.size !== undefined ? file.size : (file.buffer ? file.buffer.length : 0);
+
+    let gcsPath = `gs://researchhub-storage/${key}`;
+    try {
+      const storage = getStorageAdapter();
+      if (storage && typeof storage.uploadFile === 'function' && file.buffer) {
+        gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+      }
+    } catch (storageErr) {
+      logger.warn({ err: storageErr.message }, 'Failed to upload experiment file to storage, using fallback');
+    }
+
+    const dbRes = await query(
+      `INSERT INTO experiment_files (experiment_id, file_name, gcs_path, mime_type, size_bytes, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [id, originalName, gcsPath, mimeType, sizeBytes, req.user?.id || null]
+    );
+
+    const fileRecord = dbRes.rows[0];
+    logger.info({ fileId: fileRecord.id, experimentId: id }, 'Experiment file uploaded successfully');
+
+    emitActivityEvent({
+      projectId,
+      actorId: req.user?.id || null,
+      action: 'uploaded_experiment_file',
+      entityType: 'experiment',
+      entityId: id,
+      summary: `Uploaded file "${fileRecord.file_name}" to experiment "${exp.title}"`,
+      metadata: { fileId: fileRecord.id, fileName: fileRecord.file_name },
+    });
+
+    res.status(201).json({ file: fileRecord });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getExperiments,
   createExperiment,
@@ -398,6 +469,7 @@ module.exports = {
   deleteExperiment,
   getUploadUrl,
   confirmFileUpload,
+  uploadExperimentFile,
   getDownloadUrl,
   deleteFile,
   getExperimentLinks,

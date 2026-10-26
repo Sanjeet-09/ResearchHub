@@ -1,13 +1,15 @@
 'use strict';
 
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  try { require('dotenv').config(); } catch (_) {}
+}
 const app = require('./app');
 const logger = require('./logger');
 
 const PORT = process.env.PORT || 5010;
 
 const startServer = () => {
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(
       { port: PORT, service: 'lab', driver: process.env.LAB_DRIVER || 'local' },
       `Lab Service running on port ${PORT}`

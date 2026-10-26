@@ -284,7 +284,10 @@ execute() {
   fi
 
   log "STEP 3/3  Billing / project"
-  if $UNLINK_BILLING; then run gcloud billing projects unlink "$PROJECT_ID"; fi
+  if $UNLINK_BILLING || $DELETE_PROJECT; then
+    log "Billing Guard: Unlinking billing account from project $PROJECT_ID (Immediate Spend Halt)..."
+    run gcloud billing projects unlink "$PROJECT_ID"
+  fi
   if $DELETE_PROJECT;  then run gcloud projects delete "$PROJECT_ID" --quiet; fi
 }
 

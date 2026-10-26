@@ -1,4 +1,4 @@
-{
+﻿{
   "hosting": {
     "public": "frontend/dist",
     "ignore": [
@@ -7,6 +7,20 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "rh-gateway",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/healthz",
+        "run": {
+          "serviceId": "rh-gateway",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

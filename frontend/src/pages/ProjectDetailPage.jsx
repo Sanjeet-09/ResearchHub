@@ -61,12 +61,17 @@ export const ProjectDetailPage = () => {
     }
   }, [searchParams]);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [unreadDiscussionCount, setUnreadDiscussionCount] = useState(0);
+
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
     setSearchParams({ tab: newTab });
+    if (newTab === 'discussions') {
+      setUnreadDiscussionCount(0);
+    }
   };
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   // Modals state
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
@@ -268,7 +273,7 @@ export const ProjectDetailPage = () => {
     { id: 'datasets', label: 'Datasets', icon: Database, badge: project.datasets_count },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'publications', label: 'Publications', icon: BookOpen },
-    { id: 'discussions', label: 'Discussions', icon: MessageSquare },
+    { id: 'discussions', label: 'Discussions', icon: MessageSquare, badge: unreadDiscussionCount > 0 ? unreadDiscussionCount : undefined },
     { id: 'timeline', label: 'Timeline', icon: CalendarClock },
     { id: 'lab', label: 'Testing Environment', icon: Terminal },
     { id: 'activity', label: 'Team Activity', icon: Users },
@@ -516,9 +521,16 @@ export const ProjectDetailPage = () => {
         <PublicationsTab projectId={id} isMember={isMember} isLead={isLead} />
       )}
 
-      {activeTab === 'discussions' && (
-        <ProjectDiscussionsTab projectId={id} isMember={isMember} isLead={isLead} />
-      )}
+      {/* Discussions Tab is kept mounted with display styling so background polling and alerts continue across project tabs */}
+      <div style={{ display: activeTab === 'discussions' ? 'block' : 'none' }}>
+        <ProjectDiscussionsTab
+          projectId={id}
+          isMember={isMember}
+          isLead={isLead}
+          isActive={activeTab === 'discussions'}
+          onUnreadChange={(count) => setUnreadDiscussionCount(count)}
+        />
+      </div>
 
       {activeTab === 'timeline' && (
         <TimelineTab projectId={id} />

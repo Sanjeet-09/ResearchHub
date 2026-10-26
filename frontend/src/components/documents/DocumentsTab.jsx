@@ -12,6 +12,7 @@ import {
   Dialog,
   ConfirmDialog,
 } from '../ui';
+import { toast } from 'sonner';
 import {
   UploadCloud,
   Search,
@@ -134,6 +135,13 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
 
   // Download state
   const [downloadingId, setDownloadingId] = useState(null);
+
+  // Document Viewer Modal State (.ipynb and .md preview)
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [viewingDoc, setViewingDoc] = useState(null);
+  const [viewContent, setViewContent] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [viewError, setViewError] = useState(null);
 
   const fetchDocuments = async () => {
     try {
@@ -282,8 +290,39 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
     }
   };
 
-  // View Document in New Tab Handler
+  const isDocNotebook = (doc) => {
+    return doc?.mime_type === 'application/x-ipynb+json' ||
+      (doc?.title && doc.title.toLowerCase().endsWith('.ipynb')) ||
+      (doc?.file_name && doc.file_name.toLowerCase().endsWith('.ipynb')) ||
+      doc?.type === 'notebook';
+  };
+
+  const isDocMarkdownOrText = (doc) => {
+    const t = (doc?.title || '').toLowerCase();
+    const f = (doc?.file_name || '').toLowerCase();
+    const m = (doc?.mime_type || '').toLowerCase();
+    return t.endsWith('.md') || f.endsWith('.md') || t.endsWith('.txt') || f.endsWith('.txt') || m.includes('markdown') || m.includes('text/plain');
+  };
+
+  // View Document (modal preview for .ipynb, .md, .txt, or new tab for PDFs/other)
   const handleViewDocument = async (doc) => {
+    if (isDocNotebook(doc) || isDocMarkdownOrText(doc)) {
+      setViewingDoc(doc);
+      setIsViewerOpen(true);
+      setViewLoading(true);
+      setViewError(null);
+      setViewContent(null);
+      try {
+        const data = await documentApi.getDocumentContent(projectId, doc.id);
+        setViewContent(data?.content !== undefined ? data.content : data);
+      } catch (err) {
+        setViewError(err.response?.data?.error?.message || err.message || 'Failed to load document content');
+      } finally {
+        setViewLoading(false);
+      }
+      return;
+    }
+
     try {
       setDownloadingId(doc.id);
       const downloadRes = await documentApi.getDownloadUrl(projectId, doc.id);
@@ -292,13 +331,13 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to open document');
+      toast.error(err.response?.data?.error?.message || 'Failed to open document');
     } finally {
       setDownloadingId(null);
     }
   };
 
-  // Download Handler (saves locally to device)
+  // Download Handler (saves locally with clean original extension)
   const handleDownload = async (doc) => {
     try {
       setDownloadingId(doc.id);
@@ -306,16 +345,24 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
       const url = typeof downloadRes === 'string' ? downloadRes : downloadRes?.downloadUrl;
       if (url) {
         const downloadUrl = url.includes('?') ? `${url}&download=true` : `${url}?download=true`;
+        let targetFileName = doc.file_name || doc.title || 'document';
+        if (isDocNotebook(doc) && !targetFileName.toLowerCase().endsWith('.ipynb')) {
+          targetFileName = `${targetFileName}.ipynb`;
+        } else if (isDocMarkdownOrText(doc) && !targetFileName.toLowerCase().endsWith('.md') && !targetFileName.toLowerCase().endsWith('.txt')) {
+          targetFileName = `${targetFileName}.md`;
+        }
+
         const link = document.createElement('a');
         link.href = downloadUrl;
-        link.setAttribute('download', doc.file_name || doc.title || 'document');
+        link.setAttribute('download', targetFileName);
         link.setAttribute('target', '_blank');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        toast.success(`Downloading ${targetFileName}`);
       }
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to retrieve download link');
+      toast.error(err.response?.data?.error?.message || 'Failed to retrieve download link');
     } finally {
       setDownloadingId(null);
     }
@@ -815,6 +862,114 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
         confirmText="Delete Document"
         requiredText={docToDelete?.title}
       />
+
+      {/* Document Viewer Modal for .ipynb and .md files */}
+      <Dialog
+        isOpen={isViewerOpen}
+        onClose={() => setIsViewerOpen(false)}
+        title={viewingDoc ? (viewingDoc.title || 'Document Preview') : 'Document Preview'}
+        className="max-w-4xl w-full"
+      >
+        <div className="space-y-4 max-h-[75vh] flex flex-col">
+          {/* Header Info */}
+          <div className="flex items-center justify-between border-b border-border pb-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <Badge variant={viewingDoc ? getBadgeVariant(viewingDoc.doc_type) : 'secondary'} className="capitalize text-[10px]">
+                {viewingDoc?.doc_type || 'Document'}
+              </Badge>
+              <span className="text-xs text-txt-muted font-mono">
+                {viewingDoc?.file_name || viewingDoc?.title}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {viewingDoc && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Download}
+                  onClick={() => handleDownload(viewingDoc)}
+                  disabled={downloadingId === viewingDoc.id}
+                >
+                  Download
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto space-y-3 min-h-[250px] pr-1">
+            {viewLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 space-y-3 text-txt-muted">
+                <RefreshCw className="w-6 h-6 animate-spin text-accent" />
+                <p className="text-xs">Loading document contents...</p>
+              </div>
+            ) : viewError ? (
+              <div className="p-4 rounded-lg bg-danger/10 border border-danger/30 text-danger text-xs space-y-2">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>Unable to preview document</span>
+                </div>
+                <p className="text-txt-muted">{viewError}</p>
+                {viewingDoc && (
+                  <Button variant="secondary" size="sm" icon={Download} onClick={() => handleDownload(viewingDoc)}>
+                    Download Direct Instead
+                  </Button>
+                )}
+              </div>
+            ) : viewingDoc && isDocNotebook(viewingDoc) ? (
+              <div className="space-y-4">
+                {(() => {
+                  let cells = null;
+                  try {
+                    cells = viewContent?.cells || (typeof viewContent === 'string' ? JSON.parse(viewContent)?.cells : null);
+                  } catch (_) {}
+                  if (!Array.isArray(cells) || cells.length === 0) {
+                    return (
+                      <div className="p-6 text-center text-xs text-txt-muted bg-surface-2 rounded-lg border border-border">
+                        This notebook contains no executable cells.
+                      </div>
+                    );
+                  }
+                  return cells.map((cell, idx) => (
+                    <div key={idx} className="rounded-lg border border-border bg-surface-1 overflow-hidden font-mono text-xs">
+                      <div className="bg-surface-2 px-3 py-1.5 text-[11px] text-txt-muted flex justify-between items-center border-b border-border select-none">
+                        <span className="uppercase font-semibold tracking-wider text-[10px] text-accent">
+                          {cell.cell_type === 'code' ? `In [${cell.execution_count ?? ' '}]` : 'Markdown'}
+                        </span>
+                        <span className="text-[10px] text-txt-faint">Cell #{idx + 1}</span>
+                      </div>
+                      <div className="p-3.5 overflow-x-auto whitespace-pre-wrap font-mono text-txt bg-surface-base">
+                        {Array.isArray(cell.source) ? cell.source.join('') : (cell.source || '')}
+                      </div>
+                      {cell.outputs && cell.outputs.length > 0 && (
+                        <div className="border-t border-border bg-surface-2/60 p-3 overflow-x-auto">
+                          <div className="text-[10px] uppercase font-semibold text-txt-muted mb-1 font-mono">Output:</div>
+                          {cell.outputs.map((out, oIdx) => (
+                            <div key={oIdx} className="font-mono text-xs text-txt whitespace-pre-wrap">
+                              {out.text ? (Array.isArray(out.text) ? out.text.join('') : out.text) : (out.data?.['text/plain'] ? (Array.isArray(out.data['text/plain']) ? out.data['text/plain'].join('') : out.data['text/plain']) : JSON.stringify(out))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ));
+                })()}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-surface-1 p-4 font-mono text-xs text-txt whitespace-pre-wrap overflow-x-auto">
+                {typeof viewContent === 'string' ? viewContent : JSON.stringify(viewContent, null, 2)}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="pt-3 border-t border-border flex justify-end">
+            <Button variant="secondary" onClick={() => setIsViewerOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };

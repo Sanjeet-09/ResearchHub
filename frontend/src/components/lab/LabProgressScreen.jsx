@@ -6,44 +6,67 @@ import { Loader2, Server, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-
 export const LabProgressScreen = ({ sessionId, onReady, onFailed, onBack }) => {
   const [session, setSession] = useState(null);
   const [error, setError] = useState(null);
-  const [stepIndex, setStepIndex] = useState(0);
+  const [startupProgress, setStartupProgress] = useState(10);
 
-  const steps = [
-    'Allocating container runtime & isolated network',
-    'Mounting persistent research workspace storage',
-    'Initializing Python environment and dependencies',
-    'Starting secure JupyterLab server daemon',
-  ];
+  const getStartupMessage = (progress) => {
+    if (progress <= 30) {
+      return "Allocating Compute Engine VM...";
+    } else if (progress <= 80) {
+      return "Pulling JupyterLab container image & dependencies...";
+    } else if (progress < 100) {
+      return "Mounting project workspace & starting kernel...";
+    }
+    return "Container runtime ready!";
+  };
 
   useEffect(() => {
-    let timer;
+    let progressTimer;
     let pollInterval;
     let isMounted = true;
 
-    // Advance step indicators smoothly while waiting
-    timer = setInterval(() => {
-      setStepIndex((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
-    }, 2500);
+    // Increment progress periodically over simulated 60s window
+    progressTimer = setInterval(() => {
+      setStartupProgress((prev) => {
+        if (prev >= 99) return 99;
+        const step = prev < 30 ? 2 : prev < 80 ? 1 : Math.random() > 0.4 ? 1 : 0;
+        return Math.min(99, prev + step);
+      });
+    }, 600);
+
+    let consecutiveFailures = 0;
 
     const poll = async () => {
       try {
-        const data = await labApi.getSessionById(sessionId);
+        const data = await (typeof labApi.getSessionStatus === 'function' ? labApi.getSessionStatus(sessionId) : labApi.getSessionById(sessionId));
         if (!isMounted) return;
+        consecutiveFailures = 0;
         setSession(data);
 
-        if (data.state === 'running') {
+        const sessionState = (data?.state || data?.status || '').toLowerCase();
+        if (sessionState === 'running' || data?.ready) {
           clearInterval(pollInterval);
-          clearInterval(timer);
+          clearInterval(progressTimer);
+          setStartupProgress(100);
           onReady(data);
-        } else if (data.state === 'failed') {
+        } else if (sessionState === 'failed') {
           clearInterval(pollInterval);
-          clearInterval(timer);
+          clearInterval(progressTimer);
           setError(data.last_error || 'Session initialization encountered an error');
           if (onFailed) onFailed(data);
+        } else if (sessionState === 'stopped') {
+          clearInterval(pollInterval);
+          clearInterval(progressTimer);
+          if (onBack) onBack();
         }
       } catch (err) {
         if (!isMounted) return;
-        setError(err.response?.data?.error?.message || 'Failed to check session status');
+        consecutiveFailures++;
+        // Allow up to 4 consecutive retry polls (12s grace) for transient network/cloud blips
+        if (consecutiveFailures >= 4) {
+          clearInterval(pollInterval);
+          clearInterval(progressTimer);
+          setError(err.response?.data?.error?.message || 'Failed to check session status');
+        }
       }
     };
 
@@ -53,13 +76,13 @@ export const LabProgressScreen = ({ sessionId, onReady, onFailed, onBack }) => {
 
     return () => {
       isMounted = false;
-      clearInterval(timer);
+      clearInterval(progressTimer);
       clearInterval(pollInterval);
     };
   }, [sessionId]);
 
   return (
-    <div className="flex flex-col items-center justify-center p-12 min-h-[420px] text-center max-w-xl mx-auto space-y-8">
+    <div className="flex flex-col items-center justify-center p-12 min-h-[420px] text-center max-w-xl mx-auto space-y-8 select-none">
       {error ? (
         <div className="space-y-4">
           <div className="w-14 h-14 rounded-full bg-danger/10 border border-danger/30 flex items-center justify-center mx-auto text-danger">
@@ -104,40 +127,51 @@ export const LabProgressScreen = ({ sessionId, onReady, onFailed, onBack }) => {
             <h3 className="text-base font-semibold text-txt">
               Preparing Testing Environment
             </h3>
+            <p className="text-xs text-emerald-400 font-medium">
+              {getStartupMessage(startupProgress)}
+            </p>
             <p className="text-xs text-txt-muted">
               {session?.name ? `Session "${session.name}"` : 'Starting container...'}
             </p>
           </div>
 
-          {/* Stepper list */}
-          <div className="space-y-2.5 text-left bg-surface-2 p-5 rounded-card border border-border">
-            {steps.map((text, idx) => {
-              const isDone = idx < stepIndex;
-              const isCurrent = idx === stepIndex;
+          {/* Progress Bar & Percentage */}
+          <div className="space-y-2 text-left bg-surface-2 p-5 rounded-card border border-border">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-txt-muted">Container Startup Progress</span>
+              <span className="text-txt font-bold tabular-nums text-sm">{startupProgress}%</span>
+            </div>
 
-              return (
-                <div key={text} className="flex items-center gap-3 text-xs">
-                  {isDone ? (
-                    <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
-                  ) : isCurrent ? (
-                    <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
-                  ) : (
-                    <div className="w-4 h-4 rounded-full border border-border-strong flex-shrink-0" />
-                  )}
-                  <span
-                    className={
-                      isDone
-                        ? 'text-txt-muted line-through'
-                        : isCurrent
-                        ? 'text-txt font-medium'
-                        : 'text-txt-faint'
-                    }
-                  >
-                    {text}
-                  </span>
-                </div>
-              );
-            })}
+            <div className="w-full h-3 rounded-full bg-surface-3 border border-border overflow-hidden p-0.5">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-accent via-blue-500 to-emerald-400 transition-all duration-300 ease-out shadow-sm"
+                style={{ width: `${startupProgress}%` }}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-2 text-[10px] font-mono">
+              <div className={`p-2 rounded border text-center transition-all ${
+                startupProgress <= 30
+                  ? 'bg-accent/10 border-accent text-accent font-semibold'
+                  : 'bg-surface-3/50 border-border text-txt-muted'
+              }`}>
+                0%–30% VM Allocate
+              </div>
+              <div className={`p-2 rounded border text-center transition-all ${
+                startupProgress > 30 && startupProgress <= 80
+                  ? 'bg-accent/10 border-accent text-accent font-semibold'
+                  : 'bg-surface-3/50 border-border text-txt-muted'
+              }`}>
+                30%–80% Image Pull
+              </div>
+              <div className={`p-2 rounded border text-center transition-all ${
+                startupProgress > 80 && startupProgress < 100
+                  ? 'bg-accent/10 border-accent text-accent font-semibold'
+                  : 'bg-surface-3/50 border-border text-txt-muted'
+              }`}>
+                80%–99% Mount Workspace
+              </div>
+            </div>
           </div>
 
           <p className="text-[11px] text-txt-faint">

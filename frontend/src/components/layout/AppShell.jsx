@@ -7,7 +7,26 @@ import { useAuth } from '../../context/AuthContext';
 export const AppShell = ({ children }) => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [badgeDelta, setBadgeDelta] = useState(0);
   const { user } = useAuth();
+
+  // Listen for real-time notification alerts (e.g. unread message attention alerts)
+  useEffect(() => {
+    const handleBadgeIncrement = (e) => {
+      setBadgeDelta((prev) => prev + (e.detail?.delta || 1));
+    };
+    const handleBadgeReset = () => {
+      setBadgeDelta(0);
+    };
+
+    window.addEventListener('increment-notification-badge', handleBadgeIncrement);
+    window.addEventListener('reset-notification-badge', handleBadgeReset);
+
+    return () => {
+      window.removeEventListener('increment-notification-badge', handleBadgeIncrement);
+      window.removeEventListener('reset-notification-badge', handleBadgeReset);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -42,7 +61,7 @@ export const AppShell = ({ children }) => {
       {/* Floating Island Navigation */}
       <Navbar
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-        unreadNotifications={unreadCount}
+        unreadNotifications={unreadCount + badgeDelta}
       />
 
       {/* Main Content: pt-28 (104px-112px clearance) ensures content scrolls cleanly under the backdrop strip */}

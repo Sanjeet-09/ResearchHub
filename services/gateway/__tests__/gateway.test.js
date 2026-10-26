@@ -68,4 +68,72 @@ describe('API Gateway', () => {
       expect(res.headers['x-request-id']).toBe(customId);
     });
   });
+
+  describe('Multipart Passthrough', () => {
+    it('should bypass express.json for multipart/form-data requests so raw stream passes to proxy', async () => {
+      const validToken = jwt.sign(
+        { sub: 'user-uuid-1', role: 'student', name: 'Student One' },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+
+      const res = await request(app)
+        .post('/api/documents')
+        .set('Authorization', `Bearer ${validToken}`)
+        .attach('file', Buffer.from('test file content'), 'test.txt');
+
+      // Gateway allows multipart stream to reach proxy without premature consumption or 400/401 gatekeeper error
+      expect(res.status).not.toBe(401);
+      expect(res.status).not.toBe(400);
+    });
+  });
+
+  describe('JupyterLab Relative Proxy', () => {
+    let mockJupyterServer;
+    let receivedUrl = null;
+
+    beforeAll((done) => {
+      const http = require('http');
+      mockJupyterServer = http.createServer((req, res) => {
+        receivedUrl = req.url;
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'X-Frame-Options': 'DENY',
+        });
+        res.end('<html><head><script src="/static/lab/main.js"></script></head><body>JupyterLab Ready</body></html>');
+      });
+      mockJupyterServer.listen(9871, () => {
+        process.env.LAB_TARGET_OVERRIDE = 'http://127.0.0.1:9871';
+        done();
+      });
+    });
+
+    afterAll((done) => {
+      delete process.env.LAB_TARGET_OVERRIDE;
+      if (mockJupyterServer) {
+        mockJupyterServer.close(done);
+      } else {
+        done();
+      }
+    });
+
+    it('routes /api/lab/sessions/:id/proxy/lab without Bearer auth and preserves subpath matching base_url', async () => {
+      const res = await request(app)
+        .get('/api/lab/sessions/session-uuid-123/proxy/lab?token=jupyter-token-abc');
+
+      expect(res.status).toBe(200);
+      expect(receivedUrl).toBe('/api/lab/sessions/session-uuid-123/proxy/lab?token=jupyter-token-abc');
+      expect(res.headers['x-frame-options']).toBeUndefined();
+      expect(res.headers['content-security-policy']).toContain('frame-ancestors');
+      expect(res.text).toContain('/api/lab/sessions/session-uuid-123/proxy/static/lab/main.js');
+    });
+
+    it('routes /api/lab/sessions/:id/proxy/api/kernels to upstream subpath', async () => {
+      const res = await request(app)
+        .get('/api/lab/sessions/session-uuid-123/proxy/api/kernels');
+
+      expect(res.status).toBe(200);
+      expect(receivedUrl).toBe('/api/lab/sessions/session-uuid-123/proxy/api/kernels');
+    });
+  });
 });

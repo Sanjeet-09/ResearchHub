@@ -34,6 +34,12 @@ export const AuthProvider = ({ children }) => {
     verifyAuth();
   }, []);
 
+  const requestNotificationPermission = () => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  };
+
   const login = async (email, password) => {
     const response = await authApi.login(email, password);
     const { user: loggedInUser, token: authToken } = response;
@@ -42,6 +48,8 @@ export const AuthProvider = ({ children }) => {
     setUser(loggedInUser);
     localStorage.setItem('rh_token', authToken);
     localStorage.setItem('rh_user', JSON.stringify(loggedInUser));
+
+    requestNotificationPermission();
 
     return loggedInUser;
   };
@@ -54,6 +62,8 @@ export const AuthProvider = ({ children }) => {
     setUser(registeredUser);
     localStorage.setItem('rh_token', authToken);
     localStorage.setItem('rh_user', JSON.stringify(registeredUser));
+
+    requestNotificationPermission();
 
     return registeredUser;
   };

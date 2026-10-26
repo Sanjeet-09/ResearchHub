@@ -27,6 +27,23 @@ export const LabPage = () => {
     fetchData();
   }, []);
 
+  // Auto-poll while on session list if any session is in a transitional state
+  useEffect(() => {
+    const hasTransitional = sessions.some((s) =>
+      ['provisioning', 'pausing', 'resuming', 'stopping'].includes(s.state || s.status)
+    );
+    if (!hasTransitional || viewState !== 'list') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await labApi.getSessions();
+        if (data) setSessions(data);
+      } catch (e) {}
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [sessions, viewState]);
+
   const fetchData = async () => {
     try {
       setLoading(true);

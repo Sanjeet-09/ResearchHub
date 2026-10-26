@@ -1,28 +1,154 @@
 const fs = require('fs');
 const path = require('path');
+const { parse: parseConnectionString } = require('pg-connection-string');
+const { Pool } = require('pg');
 
-// 1. Support .env configuration
-try {
-  require('dotenv').config();
-  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-} catch (_) {}
+// 1. Support CLI flags and arguments
+const args = process.argv.slice(2);
+const isVerifyOnly = args.includes('--verify') || args.includes('--test') || args.includes('-t');
 
-// 2. Support passing connection string as CLI parameter:
-// node scripts/db-init.js "postgresql://postgres:password@db.xyz.supabase.co:5432/postgres"
-const cliArg = process.argv.slice(2).find(
+const cliArg = args.find(
   (arg) => !arg.startsWith('-') && (arg.startsWith('postgres://') || arg.startsWith('postgresql://'))
 );
 if (cliArg) {
   process.env.DATABASE_URL = cliArg;
 }
 
-// Support --url or -u flag
-const urlFlagIndex = process.argv.findIndex((arg) => arg === '--url' || arg === '-u');
-if (urlFlagIndex !== -1 && process.argv[urlFlagIndex + 1]) {
-  process.env.DATABASE_URL = process.argv[urlFlagIndex + 1];
+const urlFlagIndex = args.findIndex((arg) => arg === '--url' || arg === '-u');
+if (urlFlagIndex !== -1 && args[urlFlagIndex + 1]) {
+  process.env.DATABASE_URL = args[urlFlagIndex + 1];
 }
 
-const { pool, poolConfig } = require('../shared/src/db');
+// 2. If DATABASE_URL is not set, search candidate secrets files
+if (!process.env.DATABASE_URL) {
+  const rootDir = path.join(__dirname, '..');
+  const candidateFiles = [
+    'secrets.env',
+    '.env.secrets',
+    'secretes.txt',
+    'secrets.txt',
+    '.env.production',
+    '.env',
+  ];
+
+  for (const filename of candidateFiles) {
+    const filePath = path.join(rootDir, filename);
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const lines = content.split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          if (trimmed.startsWith('postgresql://') || trimmed.startsWith('postgres://')) {
+            process.env.DATABASE_URL = trimmed;
+            break;
+          }
+          if (trimmed.startsWith('DATABASE_URL=')) {
+            process.env.DATABASE_URL = trimmed.substring('DATABASE_URL='.length).trim().replace(/^["']|["']$/g, '');
+            break;
+          }
+        }
+        if (process.env.DATABASE_URL) {
+          break;
+        }
+      } catch (_) {}
+    }
+  }
+}
+
+// Fallback to standard dotenv loading
+try {
+  require('dotenv').config();
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+} catch (_) {}
+
+function maskConnectionString(url) {
+  if (!url) return '';
+  return url.replace(/:\/\/([^:]+):(.+)@([^@]+)$/, '://$1:****@$3');
+}
+
+// Known common Supabase pooler regions to test if direct IPv6 connection fails
+const SUPABASE_POOLER_REGIONS = [
+  'ap-northeast-1', // Tokyo (active ResearchHub instance)
+  'ap-south-1',     // Mumbai
+  'ap-southeast-1', // Singapore
+  'us-east-1',      // N. Virginia
+  'us-west-1',      // N. California
+  'eu-central-1',   // Frankfurt
+  'eu-west-1',      // Ireland
+];
+
+function stripSslMode(urlStr) {
+  if (!urlStr) return urlStr;
+  try {
+    const u = new URL(urlStr);
+    u.searchParams.delete('sslmode');
+    return u.toString();
+  } catch (_) {
+    return urlStr.replace(/[?&]sslmode=[^&]+/g, '').replace(/\?&/, '?').replace(/\?$/, '');
+  }
+}
+
+async function createWorkingPool(rawUrl) {
+  let cleanUrl = rawUrl || process.env.DATABASE_URL;
+  if (cleanUrl) {
+    cleanUrl = stripSslMode(cleanUrl);
+  }
+
+  const baseConfig = cleanUrl
+    ? { connectionString: cleanUrl, ssl: { rejectUnauthorized: false } }
+    : require('../shared/src/db').poolConfig;
+
+  let pool = new Pool(baseConfig);
+
+  try {
+    const testClient = await pool.connect();
+    testClient.release();
+    return { pool, url: cleanUrl };
+  } catch (err) {
+    await pool.end().catch(() => {});
+
+    // Check if error is due to IPv6-only Supabase host on an IPv4 network
+    if (
+      cleanUrl &&
+      (cleanUrl.includes('.supabase.co') || err.code === 'ENOTFOUND' || err.message.includes('ENOTFOUND'))
+    ) {
+      console.log('\n[NOTICE] Direct Supabase host returned ENOTFOUND (IPv6-only host on IPv4 environment).');
+      console.log('[NOTICE] Resolving IPv4 Supabase Connection Pooler automatically...');
+
+      try {
+        const parsed = parseConnectionString(cleanUrl);
+        const hostMatch = parsed.host && parsed.host.match(/^db\.([a-z0-9]+)\.supabase\.co/);
+        const projectRef = hostMatch ? hostMatch[1] : '';
+
+        if (projectRef && parsed.password) {
+          const tenantUser = parsed.user && parsed.user.includes('.') ? parsed.user : `postgres.${projectRef}`;
+          for (const region of SUPABASE_POOLER_REGIONS) {
+            for (const port of [6543, 5432]) {
+              const poolerHost = `aws-0-${region}.pooler.supabase.com`;
+              const poolerConnStr = `postgresql://${tenantUser}:${encodeURIComponent(parsed.password)}@${poolerHost}:${port}/postgres`;
+              const candidatePool = new Pool({ connectionString: poolerConnStr, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 3000 });
+              try {
+                const client = await candidatePool.connect();
+                client.release();
+                console.log(`[OK] Successfully connected via Supabase Connection Pooler (${poolerHost}:${port})!\n`);
+                process.env.DATABASE_URL = poolerConnStr;
+                return { pool: candidatePool, url: poolerConnStr };
+              } catch (poolerErr) {
+                await candidatePool.end().catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (poolerSweepErr) {
+        // Fall through to original error
+      }
+    }
+
+    throw err;
+  }
+}
 
 // Helper to split SQL into statements, respecting dollar-quoted blocks ($$...$$) and single-quoted strings
 function splitSqlStatements(sql) {
@@ -35,14 +161,12 @@ function splitSqlStatements(sql) {
   for (let i = 0; i < sql.length; i++) {
     const char = sql[i];
 
-    // Single-quote string literal handling
     if (!inDollarQuote) {
       if (char === "'" && (i === 0 || sql[i - 1] !== '\\')) {
         inString = !inString;
       }
     }
 
-    // Dollar-quoting ($$...$$ or $tag$...$tag$) handling for PL/pgSQL
     if (!inString) {
       if (char === '$') {
         const remaining = sql.slice(i);
@@ -87,98 +211,124 @@ function splitSqlStatements(sql) {
 
 // Benign error codes in PostgreSQL when objects already exist
 const BENIGN_ERROR_CODES = new Set([
-  '42710', // duplicate_object (type, constraint, or trigger already exists)
-  '42P07', // duplicate_table (relation or index already exists)
+  '42710', // duplicate_object
+  '42P07', // duplicate_table
   '42723', // duplicate_function
   '42P06', // duplicate_schema
-  '23505', // unique_violation (seed record already exists)
-  '42501', // insufficient_privilege (e.g. extension already installed in managed cloud DB)
+  '23505', // unique_violation
+  '42501', // insufficient_privilege
 ]);
 
 async function initDb() {
-  const targetInfo = process.env.DATABASE_URL
-    ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ':****@')
-    : `${poolConfig.host}:${poolConfig.port}/${poolConfig.database}`;
-
   console.log(`\n======================================================`);
   console.log(`ResearchHub DB Migration & Seed Runner`);
-  console.log(`Connecting to: ${targetInfo}`);
-  console.log(`SSL Enabled:   ${Boolean(poolConfig.ssl)}`);
+  console.log(`Target:      ${maskConnectionString(process.env.DATABASE_URL) || 'Local DB'}`);
+  console.log(`Mode:        ${isVerifyOnly ? 'Verification Only' : 'Migration & Seed'}`);
   console.log(`======================================================\n`);
 
+  let pool;
   let client;
   try {
+    const poolResult = await createWorkingPool(process.env.DATABASE_URL);
+    pool = poolResult.pool;
     client = await pool.connect();
     console.log('[OK] Connected to PostgreSQL database successfully.');
 
-    const runSqlFile = async (relPath, label) => {
-      console.log(`\n--> Applying ${label}...`);
-      const fullPath = path.join(__dirname, '..', relPath);
-      if (!fs.existsSync(fullPath)) {
-        console.log(`[SKIP] ${label} file not found at ${fullPath}`);
-        return;
-      }
-      const sql = fs.readFileSync(fullPath, 'utf8');
-
-      // Attempt 1: Execute file as a single batch
-      try {
-        await client.query(sql);
-        console.log(`[OK] ${label} applied cleanly in single batch.`);
-        return;
-      } catch (batchErr) {
-        if (BENIGN_ERROR_CODES.has(batchErr.code)) {
-          console.log(`[NOTICE] Batch finished with notice: ${batchErr.message}`);
+    if (!isVerifyOnly) {
+      const runSqlFile = async (relPath, label) => {
+        console.log(`\n--> Applying ${label}...`);
+        const fullPath = path.join(__dirname, '..', relPath);
+        if (!fs.existsSync(fullPath)) {
+          console.log(`[SKIP] ${label} file not found at ${fullPath}`);
           return;
         }
+        const sql = fs.readFileSync(fullPath, 'utf8');
 
-        console.log(`[INFO] Batch encountered '${batchErr.message}'. Running statement-by-statement for idempotency...`);
-      }
-
-      // Attempt 2: Fallback to statement-by-statement execution
-      const statements = splitSqlStatements(sql);
-      let executedCount = 0;
-      let skippedCount = 0;
-
-      for (const statement of statements) {
+        // Attempt 1: Execute file as a single batch
         try {
-          await client.query(statement);
-          executedCount++;
-        } catch (stmtErr) {
-          if (BENIGN_ERROR_CODES.has(stmtErr.code)) {
-            skippedCount++;
-          } else {
-            console.error(`[ERROR] Statement failed: ${stmtErr.message}`);
-            console.error(`Statement snippet: ${statement.slice(0, 120)}...`);
-            throw stmtErr;
+          await client.query(sql);
+          console.log(`[OK] ${label} applied cleanly in single batch.`);
+          return;
+        } catch (batchErr) {
+          if (BENIGN_ERROR_CODES.has(batchErr.code)) {
+            console.log(`[NOTICE] Batch finished with notice: ${batchErr.message}`);
+            return;
+          }
+          console.log(`[INFO] Batch encountered '${batchErr.message}'. Running statement-by-statement for idempotency...`);
+        }
+
+        // Attempt 2: Statement-by-statement execution
+        const statements = splitSqlStatements(sql);
+        let executedCount = 0;
+        let skippedCount = 0;
+
+        for (const statement of statements) {
+          try {
+            await client.query(statement);
+            executedCount++;
+          } catch (stmtErr) {
+            if (BENIGN_ERROR_CODES.has(stmtErr.code)) {
+              skippedCount++;
+            } else {
+              console.error(`[ERROR] Statement failed: ${stmtErr.message}`);
+              console.error(`Statement snippet: ${statement.slice(0, 120)}...`);
+              throw stmtErr;
+            }
           }
         }
+
+        console.log(`[OK] ${label} completed (${executedCount} applied, ${skippedCount} skipped as already existing).`);
+      };
+
+      // Run full migration suite dynamically from db/migrations/
+      const migrationsDir = path.join(__dirname, '..', 'db', 'migrations');
+      if (fs.existsSync(migrationsDir)) {
+        const migrationFiles = fs.readdirSync(migrationsDir)
+          .filter((f) => f.endsWith('.sql'))
+          .sort();
+        for (const file of migrationFiles) {
+          await runSqlFile(path.join('db', 'migrations', file), `${file}`);
+        }
       }
+      await runSqlFile('db/seed.sql', 'seed.sql (Demo Users & Seed Data)');
+    }
 
-      console.log(`[OK] ${label} completed (${executedCount} applied, ${skippedCount} skipped as already existing).`);
-    };
+    // Step: Verify connection succeeds and tables exist
+    console.log('\n--> Verifying database schema integrity...');
+    const tableRes = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      ORDER BY table_name;
+    `);
 
-    // Run full migration suite
-    await runSqlFile('db/migrations/001_init.sql', '001_init.sql (Core Schema)');
-    await runSqlFile('db/migrations/002_project_messages.sql', '002_project_messages.sql (Project Discussion & Messaging)');
-    await runSqlFile('db/seed.sql', 'seed.sql (Demo Users & Seed Data)');
+    const tables = tableRes.rows.map((r) => r.table_name);
+    console.log(`[VERIFY] Verified tables present in Supabase (${tables.length} tables):`);
+    console.log(`         ${tables.join(', ')}`);
+
+    const requiredTables = ['users', 'projects', 'experiments', 'datasets', 'documents', 'project_messages'];
+    const missingTables = requiredTables.filter((t) => !tables.includes(t));
+
+    if (missingTables.length > 0) {
+      throw new Error(`Database verification failed: missing required tables: ${missingTables.join(', ')}`);
+    }
 
     console.log('\n======================================================');
-    console.log('Database successfully initialized, migrated, and seeded!');
+    console.log('Database successfully initialized, migrated, and verified!');
     console.log('======================================================\n');
   } catch (err) {
     console.error('\n[FATAL] Database initialization failed:');
     console.error(err.message);
-    if (err.code === 'ECONNREFUSED') {
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
       console.error('\nTroubleshooting:');
-      console.error('- If using local Docker: Ensure docker-compose is up (docker-compose up -d postgres).');
-      console.error('- If using Supabase: Check your DATABASE_URL format and credentials.');
+      console.error('- Check your Supabase DATABASE_URL format and credentials.');
       console.error('  Supabase Direct: postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres');
       console.error('  Supabase Pooler: postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres');
     }
     process.exit(1);
   } finally {
     if (client) client.release();
-    await pool.end().catch(() => {});
+    if (pool) await pool.end().catch(() => {});
   }
 }
 

@@ -91,7 +91,8 @@ export const LabEditConfigModal = ({
       if (onRestarted) onRestarted(res);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.error?.message || 'Failed to restart session');
+      const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to restart session';
+      setError(msg);
     } finally {
       setSaving(false);
     }
@@ -179,10 +180,14 @@ export const LabEditConfigModal = ({
                       <span>{p.cpu}</span>
                       <span>·</span>
                       <span>{p.memory_gb} GiB RAM</span>
-                      {p.gpu_type && (
+                      {(p.gpu_type || p.category === 'ai_ml') && (
                         <>
                           <span>·</span>
-                          <span className="text-accent">{p.gpu_type}</span>
+                          <span className="text-accent">
+                            {p.category === 'ai_ml' || p.gpu_type?.includes('NVIDIA')
+                              ? 'Intel AMX / AVX-512 (High Compute)'
+                              : p.gpu_type}
+                          </span>
                         </>
                       )}
                     </div>
