@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const {
   authenticateToken,
   requireProjectRole,
@@ -11,6 +12,7 @@ const {
   updateDataset,
   deleteDataset,
   getVersionUploadUrl,
+  createVersion,
   confirmVersion,
   getVersionHistory,
   getVersionDownloadUrl,
@@ -18,6 +20,25 @@ const {
 } = require('../controllers/datasetController');
 
 const router = express.Router({ mergeParams: true });
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+});
+
+const uploadMiddleware = (req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.toLowerCase().includes('multipart/form-data')) {
+    return upload.single('file')(req, res, (err) => {
+      if (err) return next(err);
+      if (!req.file && req.files && req.files.length > 0) {
+        req.file = req.files[0];
+      }
+      next();
+    });
+  }
+  next();
+};
 
 router.use(authenticateToken);
 
@@ -36,9 +57,18 @@ router.delete('/projects/:pid/datasets/:id', requireProjectRole('lead'), deleteD
 // Keep :pid in the path so requireProjectRole always has a valid project UUID.
 
 router.post('/projects/:pid/datasets/:id/versions/upload-url', requireProjectRole('member'), getVersionUploadUrl);
-router.post('/projects/:pid/datasets/:id/versions', requireProjectRole('member'), confirmVersion);
+router.post('/projects/:pid/datasets/:id/versions', requireProjectRole('member'), uploadMiddleware, createVersion);
 router.get('/projects/:pid/datasets/:id/versions', requireProjectRole('viewer'), getVersionHistory);
 router.get('/projects/:pid/datasets/:id/versions/:versionId/download', requireProjectRole('viewer'), getVersionDownloadUrl);
 router.post('/projects/:pid/datasets/:id/versions/:versionId/restore', requireProjectRole('member'), restoreVersion);
+
+// Standalone routes (when proxied via /api/datasets or /api/projects/:pid/datasets)
+router.post('/datasets/:id/versions', uploadMiddleware, createVersion);
+router.get('/datasets/:id/versions', getVersionHistory);
+router.get('/datasets/:id', getDatasetById);
+router.get('/datasets', getDatasets);
+
+router.post('/:id/versions', uploadMiddleware, createVersion);
+router.get('/:id/versions', getVersionHistory);
 
 module.exports = router;

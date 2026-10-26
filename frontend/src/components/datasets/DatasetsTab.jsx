@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { datasetApi } from '../../services/api';
+import { toast } from 'sonner';
 import {
   Card,
   Button,
@@ -34,7 +35,6 @@ import {
   AlertCircle,
   Copy,
 } from 'lucide-react';
-import { toast } from 'sonner';
 
 export const DatasetsTab = ({ projectId, isMember, isLead }) => {
   const [datasets, setDatasets] = useState([]);
@@ -164,54 +164,70 @@ export const DatasetsTab = ({ projectId, isMember, isLead }) => {
     }
   };
 
-  // File upload: 3-step signed URL flow
+  // File upload: Direct FormData multipart upload with 3-step fallback
   const handleFileUpload = async (file) => {
     if (!file || !selectedDataset) return;
-
-    // Compute SHA-256 checksum client-side
-    let checksumSha256 = '';
-    try {
-      const buffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      checksumSha256 = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch (err) {
-      checksumSha256 = `client-${Date.now()}`; // fallback for environments without crypto.subtle
-    }
 
     try {
       setIsUploading(true);
       setUploadProgress(10);
 
-      // Step 1: Get signed upload URL
-      const { uploadUrl, gcsPath, nextVersion } = await datasetApi.getVersionUploadUrl(projectId, selectedDataset.id, {
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-      });
+      const changeNote = uploadChangeNote.trim() || `Version uploaded`;
 
-      setUploadProgress(35);
+      try {
+        // Preferred single-request direct multipart upload (bypasses express.json at Gateway)
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('change_note', changeNote);
 
-      // Step 2: Upload binary
-      await datasetApi.uploadFileBinary(uploadUrl, file, (pct) => {
-        setUploadProgress(35 + Math.round(pct * 0.5));
-      });
+        await datasetApi.uploadVersion(projectId, selectedDataset.id, formData, (pct) => {
+          setUploadProgress(10 + Math.round(pct * 0.88));
+        });
+      } catch (directErr) {
+        console.warn('[DatasetsTab] Direct multipart upload fallback to signed URL:', directErr.message);
 
-      setUploadProgress(88);
+        // Compute SHA-256 checksum client-side
+        let checksumSha256 = '';
+        try {
+          const buffer = await file.arrayBuffer();
+          const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          checksumSha256 = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+        } catch (err) {
+          checksumSha256 = `client-${Date.now()}`;
+        }
 
-      // Step 3: Confirm version
-      await datasetApi.confirmVersion(projectId, selectedDataset.id, {
-        gcsPath,
-        sizeBytes: file.size,
-        checksumSha256,
-        changeNote: uploadChangeNote.trim() || `Version ${nextVersion} uploaded`,
-        metadata: {
-          originalFileName: file.name,
+        // Step 1: Get signed upload URL
+        const { uploadUrl, gcsPath, nextVersion } = await datasetApi.getVersionUploadUrl(projectId, selectedDataset.id, {
+          fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
-        },
-      });
+        });
+
+        setUploadProgress(40);
+
+        // Step 2: Upload binary
+        await datasetApi.uploadFileBinary(uploadUrl, file, (pct) => {
+          setUploadProgress(40 + Math.round(pct * 0.45));
+        });
+
+        setUploadProgress(88);
+
+        // Step 3: Confirm version
+        await datasetApi.confirmVersion(projectId, selectedDataset.id, {
+          gcsPath,
+          sizeBytes: file.size,
+          checksumSha256,
+          changeNote: changeNote || `Version ${nextVersion} uploaded`,
+          metadata: {
+            originalFileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+          },
+        });
+      }
 
       setUploadProgress(100);
       setUploadChangeNote('');
+      toast.success('Version uploaded successfully');
 
       // Refresh versions
       const data = await datasetApi.getDatasetById(projectId, selectedDataset.id);
@@ -222,9 +238,9 @@ export const DatasetsTab = ({ projectId, isMember, isLead }) => {
       setTimeout(() => {
         setIsUploadOpen(false);
         setUploadProgress(0);
-      }, 800);
+      }, 700);
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to upload version');
+      toast.error(err.response?.data?.error?.message || err.message || 'Failed to upload version');
     } finally {
       setIsUploading(false);
     }

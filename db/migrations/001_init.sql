@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS lab_sessions (
   gce_instance_name TEXT,
   gce_zone TEXT,
   url TEXT,
+  public_ip TEXT,
   jupyter_token_enc TEXT,
   workspace_prefix TEXT,
   last_active_at TIMESTAMPTZ,

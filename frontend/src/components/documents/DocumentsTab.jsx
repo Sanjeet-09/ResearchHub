@@ -291,17 +291,19 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
   };
 
   const isDocNotebook = (doc) => {
-    return doc?.mime_type === 'application/x-ipynb+json' ||
-      (doc?.title && doc.title.toLowerCase().endsWith('.ipynb')) ||
-      (doc?.file_name && doc.file_name.toLowerCase().endsWith('.ipynb')) ||
-      doc?.type === 'notebook';
+    const t = (doc?.title || '').toLowerCase();
+    const f = (doc?.file_name || '').toLowerCase();
+    const g = (doc?.gcs_path || '').toLowerCase();
+    const m = (doc?.mime_type || '').toLowerCase();
+    return m.includes('ipynb') || t.endsWith('.ipynb') || f.endsWith('.ipynb') || g.endsWith('.ipynb') || doc?.doc_type === 'notebook' || doc?.type === 'notebook';
   };
 
   const isDocMarkdownOrText = (doc) => {
     const t = (doc?.title || '').toLowerCase();
     const f = (doc?.file_name || '').toLowerCase();
+    const g = (doc?.gcs_path || '').toLowerCase();
     const m = (doc?.mime_type || '').toLowerCase();
-    return t.endsWith('.md') || f.endsWith('.md') || t.endsWith('.txt') || f.endsWith('.txt') || m.includes('markdown') || m.includes('text/plain');
+    return t.endsWith('.md') || f.endsWith('.md') || g.endsWith('.md') || t.endsWith('.txt') || f.endsWith('.txt') || g.endsWith('.txt') || m.includes('markdown') || m.includes('text/plain');
   };
 
   // View Document (modal preview for .ipynb, .md, .txt, or new tab for PDFs/other)

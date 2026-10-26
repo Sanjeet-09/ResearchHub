@@ -242,6 +242,20 @@ describe('GCE Compute Engine On-Demand Driver', () => {
       expect(status).toEqual({ status: 'STARTING', ready: false });
     });
 
+    it('returns PROVISIONING and ready false if VM is RUNNING in GCE but external NAT IP is not yet assigned', async () => {
+      mockGet.mockResolvedValueOnce([
+        {
+          status: 'RUNNING',
+          networkInterfaces: [
+            { networkIP: '10.128.0.2', accessConfigs: [] }
+          ]
+        }
+      ]);
+
+      const status = await gceDriver.status(sessionId);
+      expect(status).toEqual({ status: 'PROVISIONING', ready: false });
+    });
+
     it('supports direct instanceName parameter as well as sessionId', async () => {
       mockGet.mockResolvedValueOnce([{ status: 'RUNNING' }]);
 

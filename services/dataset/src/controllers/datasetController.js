@@ -308,29 +308,41 @@ const getVersionUploadUrl = async (req, res, next) => {
   }
 };
 
-// POST /projects/:pid/datasets/:id/versions
-const confirmVersion = async (req, res, next) => {
+// POST /projects/:pid/datasets/:id/versions or POST /datasets/:id/versions
+const createVersion = async (req, res, next) => {
   try {
-    const { pid, id } = req.params;
-    if (!uuidSchema.safeParse(pid).success || !uuidSchema.safeParse(id).success) {
-      throw new ValidationError('Invalid ID format (UUID expected)');
+    const pid = req.params.pid;
+    const id = req.params.id;
+    if (!uuidSchema.safeParse(id).success) {
+      throw new ValidationError('Invalid dataset ID format (UUID expected)');
+    }
+    if (pid && !uuidSchema.safeParse(pid).success) {
+      throw new ValidationError('Invalid project ID format (UUID expected)');
     }
 
-    const parsed = confirmVersionSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new ValidationError(parsed.error.errors[0].message);
+    const file = req.file || (req.files && req.files[0]);
+
+    let parsedJson = null;
+    if (!file) {
+      const parsed = confirmVersionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.errors[0].message);
+      }
+      parsedJson = parsed.data;
     }
 
-    // Verify dataset belongs to this project
-    const dsRes = await query(
-      'SELECT * FROM datasets WHERE id = $1 AND project_id = $2',
-      [id, pid]
-    );
+    let queryText = 'SELECT * FROM datasets WHERE id = $1';
+    const params = [id];
+    if (pid) {
+      queryText += ' AND project_id = $2';
+      params.push(pid);
+    }
+    const dsRes = await query(queryText, params);
     if (dsRes.rows.length === 0) {
-      throw new NotFoundError('Dataset not found in this project');
+      throw new NotFoundError('Dataset not found');
     }
-
-    const { gcsPath, sizeBytes, checksumSha256, metadata, changeNote } = parsed.data;
+    const dataset = dsRes.rows[0];
+    const projectId = pid || dataset.project_id;
 
     // Auto-increment version_no atomically
     const versionCountRes = await query(
@@ -338,6 +350,36 @@ const confirmVersion = async (req, res, next) => {
       [id]
     );
     const newVersionNo = (versionCountRes.rows[0].max_ver || 0) + 1;
+
+    let gcsPath = null;
+    let sizeBytes = 0;
+    let checksumSha256 = null;
+    let metadata = {};
+    let changeNote = req.body?.change_note || req.body?.changeNote || null;
+
+    if (file) {
+      const originalName = file.originalname || file.name || 'dataset.bin';
+      sizeBytes = file.size !== undefined ? file.size : (file.buffer ? file.buffer.length : 0);
+      const sanitized = pathSanitize(originalName);
+      const key = `datasets/${projectId}/${id}/v${newVersionNo}/${sanitized}`;
+      const storage = getStorageAdapter();
+      gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, file.mimetype || 'application/octet-stream');
+      metadata = {
+        originalFileName: originalName,
+        mimeType: file.mimetype || 'application/octet-stream',
+      };
+      if (req.body?.checksumSha256) {
+        checksumSha256 = req.body.checksumSha256;
+      }
+    } else if (req.body?.gcsPath) {
+      // JSON confirm payload fallback
+      gcsPath = req.body.gcsPath;
+      sizeBytes = req.body.sizeBytes || 0;
+      checksumSha256 = req.body.checksumSha256 || null;
+      metadata = req.body.metadata || {};
+    } else {
+      throw new ValidationError('No dataset file or storage path provided');
+    }
 
     const versionRes = await query(
       `INSERT INTO dataset_versions
@@ -350,9 +392,9 @@ const confirmVersion = async (req, res, next) => {
         gcsPath,
         sizeBytes || 0,
         checksumSha256,
-        JSON.stringify(metadata || {}),
-        changeNote || null,
-        req.user.id,
+        JSON.stringify(metadata),
+        changeNote || `Version v${newVersionNo} uploaded`,
+        req.user?.id || null,
       ]
     );
 
@@ -364,33 +406,42 @@ const confirmVersion = async (req, res, next) => {
       [version.id, id]
     );
 
-    logger.info({ datasetId: id, versionId: version.id, versionNo: newVersionNo }, 'Dataset version confirmed');
+    logger.info({ datasetId: id, versionId: version.id, versionNo: newVersionNo }, 'Dataset version created');
 
     emitActivityEvent({
-      projectId: pid,
-      actorId: req.user.id,
-      action: 'created_dataset_version',
+      projectId,
+      actorId: req.user?.id || null,
+      action: 'version_uploaded',
       entityType: 'dataset',
       entityId: id,
-      summary: `Uploaded version v${newVersionNo} for dataset`,
+      summary: `Uploaded version v${newVersionNo} for dataset "${dataset.name}"`,
       metadata: { versionNo: newVersionNo, sizeBytes },
     });
 
-    if (dsRes.rows[0]?.created_by) {
+    if (dataset.created_by) {
       emitNotification({
-        userId: dsRes.rows[0].created_by,
+        userId: dataset.created_by,
         type: 'dataset_version',
         title: 'New Dataset Version',
-        body: `Version v${newVersionNo} uploaded for dataset "${dsRes.rows[0].name}".`,
-        link: `/projects/${pid}?tab=datasets`,
+        body: `Version v${newVersionNo} uploaded for dataset "${dataset.name}".`,
+        link: `/projects/${projectId}?tab=datasets`,
       });
     }
 
-    res.status(201).json({ version });
+    const newVersion = {
+      ...version,
+      version_number: version.version_no,
+      file_name: metadata?.originalFileName || (typeof metadata === 'string' ? JSON.parse(metadata).originalFileName : 'dataset.bin'),
+      file_size: version.size_bytes,
+    };
+
+    res.status(201).json({ success: true, version: newVersion });
   } catch (err) {
     next(err);
   }
 };
+
+const confirmVersion = createVersion;
 
 // GET /projects/:pid/datasets/:id/versions
 const getVersionHistory = async (req, res, next) => {
@@ -566,6 +617,7 @@ module.exports = {
   updateDataset,
   deleteDataset,
   getVersionUploadUrl,
+  createVersion,
   confirmVersion,
   getVersionHistory,
   getVersionDownloadUrl,

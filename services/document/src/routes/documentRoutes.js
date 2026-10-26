@@ -68,4 +68,8 @@ router.get('/documents/:id', getDocumentById);
 router.patch('/documents/:id', updateDocument);
 router.delete('/documents/:id', deleteDocument);
 
+router.get('/:id/content', getDocumentContent);
+router.get('/:id/download', getDownloadUrl);
+router.get('/:id', getDocumentById);
+
 module.exports = router;

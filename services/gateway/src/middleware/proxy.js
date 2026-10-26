@@ -9,6 +9,12 @@ const { logger } = require('@rh/shared');
  */
 const createServiceProxy = (targetUrlResolver, pathRewritePrefix = '') => {
   return (req, res, next) => {
+    // Never intercept JupyterLab proxy routes destined for VM
+    const pathToCheck = req.originalUrl || req.url || '';
+    if (pathToCheck.includes('/proxy')) {
+      return next();
+    }
+
     const rawTarget = typeof targetUrlResolver === 'function'
       ? targetUrlResolver()
       : targetUrlResolver;
@@ -89,14 +95,21 @@ const createServiceProxy = (targetUrlResolver, pathRewritePrefix = '') => {
   };
 };
 
-const { createProxyMiddleware, responseInterceptor } = require('http-proxy-middleware');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const labTargetCache = new Map();
 
 /**
- * Resolve target JupyterLab VM URL for a given sessionId.
+ * Resolve target JupyterLab VM URL for a given sessionId or request.
  */
-async function resolveLabTarget(sessionId) {
+async function resolveLabTarget(sessionIdOrReq) {
+  let sessionId = sessionIdOrReq;
+  if (sessionIdOrReq && typeof sessionIdOrReq === 'object') {
+    sessionId = sessionIdOrReq.params?.id ||
+      (sessionIdOrReq.url || sessionIdOrReq.originalUrl || '').match(/\/api\/lab\/sessions\/([^/]+)\/proxy/)?.[1] ||
+      (sessionIdOrReq.baseUrl || '').match(/\/api\/lab\/sessions\/([^/]+)\/proxy/)?.[1];
+  }
+
   if (!sessionId) return null;
 
   if (process.env.LAB_TARGET_OVERRIDE) {
@@ -111,17 +124,22 @@ async function resolveLabTarget(sessionId) {
   try {
     const { pool } = require('@rh/shared');
     if (pool) {
-      const { rows } = await pool.query('SELECT url, state FROM lab_sessions WHERE id = $1', [sessionId]);
-      if (rows.length > 0 && rows[0].url) {
+      const { rows } = await pool.query('SELECT url, public_ip, state FROM lab_sessions WHERE id = $1', [sessionId]);
+      if (rows.length > 0) {
         let rawUrl = rows[0].url;
-        try {
-          const parsed = new URL(rawUrl);
-          const targetUrl = `${parsed.protocol}//${parsed.hostname}:${parsed.port || 8888}`;
-          labTargetCache.set(sessionId, { target: targetUrl, expiresAt: Date.now() + 30000 });
-          return targetUrl;
-        } catch (_) {
-          labTargetCache.set(sessionId, { target: rawUrl, expiresAt: Date.now() + 30000 });
-          return rawUrl;
+        if (rows[0].public_ip) {
+          rawUrl = `http://${rows[0].public_ip}:8888`;
+        }
+        if (rawUrl) {
+          try {
+            const parsed = new URL(rawUrl);
+            const targetUrl = `${parsed.protocol}//${parsed.hostname}:${parsed.port || 8888}`;
+            labTargetCache.set(sessionId, { target: targetUrl, expiresAt: Date.now() + 30000 });
+            return targetUrl;
+          } catch (_) {
+            labTargetCache.set(sessionId, { target: rawUrl, expiresAt: Date.now() + 30000 });
+            return rawUrl;
+          }
         }
       }
     }
@@ -141,88 +159,57 @@ async function resolveLabTarget(sessionId) {
  * Routes /api/lab/sessions/:id/proxy/* to target VM port 8888.
  * Preserves subpath matching JupyterLab's --ServerApp.base_url.
  * Supports WebSockets (ws: true) for interactive Jupyter kernels.
- * Configured with HTML response interceptor to rewrite absolute asset paths if needed.
  */
 function createLabProxy() {
   return createProxyMiddleware({
+    target: 'http://127.0.0.1:8888',
     router: async (req) => {
-      const sessionId = req.params?.id || (req.url || req.originalUrl || '').match(/\/api\/lab\/sessions\/([^/]+)\/proxy/)?.[1];
-      const target = await resolveLabTarget(sessionId);
-      return target || 'http://127.0.0.1:8888';
+      return await resolveLabTarget(req);
     },
     changeOrigin: true,
     ws: true,
-    selfHandleResponse: true,
-    pathRewrite: (path, req) => {
-      // Forward the full proxy path so JupyterLab instances started with --ServerApp.base_url resolve correctly
-      const original = req.originalUrl || req.url || path;
-      return original.startsWith('/') ? original : '/' + original;
-    },
+    proxyTimeout: 30000,
+    timeout: 30000,
+    // Do NOT specify pathRewrite here; req.url is already the exact full path
     on: {
-      proxyRes: responseInterceptor(async (responseBuffer, proxyRes, req, res) => {
+      proxyRes: (proxyRes, req, res) => {
         delete proxyRes.headers['x-frame-options'];
-        if (typeof res.removeHeader === 'function') {
-          res.removeHeader('x-frame-options');
-        }
-        const csp = "frame-ancestors 'self' https://*.web.app https://*.run.app https://*.firebaseapp.com http://localhost:3000 http://localhost:5000 http://127.0.0.1:3000";
+        const csp =
+          "frame-ancestors 'self' https://*.web.app https://*.run.app https://*.firebaseapp.com http://localhost:3000 http://localhost:5000 http://127.0.0.1:3000";
         proxyRes.headers['content-security-policy'] = csp;
-        if (typeof res.setHeader === 'function') {
+        if (res && typeof res.setHeader === 'function') {
           res.setHeader('content-security-policy', csp);
           res.setHeader('cross-origin-resource-policy', 'cross-origin');
         }
-
-        const contentType = proxyRes.headers['content-type'] || '';
-        if (contentType.includes('text/html')) {
-          const sessionId = req.params?.id || (req.url || req.originalUrl || '').match(/\/api\/lab\/sessions\/([^/]+)\/proxy/)?.[1];
-          if (sessionId) {
-            const prefix = `/api/lab/sessions/${sessionId}/proxy`;
-            let html = responseBuffer.toString('utf8');
-            // Ensure absolute asset URLs /static/, /themes/, /api/ resolve through the proxy subpath
-            html = html
-              .replace(/(href|src)=["']\/static\//g, `$1="${prefix}/static/`)
-              .replace(/(href|src)=["']\/themes\//g, `$1="${prefix}/themes/`)
-              .replace(/(href|src)=["']\/api\//g, `$1="${prefix}/api/`)
-              .replace(/"baseUrl":\s*"\/"/g, `"baseUrl": "${prefix}/"`)
-              .replace(/"appUrl":\s*"\/lab"/g, `"appUrl": "${prefix}/lab"`);
-            return html;
-          }
+        if (res && typeof res.removeHeader === 'function') {
+          res.removeHeader('x-frame-options');
         }
-        return responseBuffer;
-      }),
+      },
       error: (err, req, res) => {
-        logger.warn({ err: err.message, url: req.url }, 'JupyterLab proxy connection error');
-        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+        console.error(`[LabProxy Error] Target failed: ${err.code} - ${err.message}`);
+        if (res && !res.headersSent && typeof res.status === 'function') {
+          res.status(502).json({
+            error: {
+              code: "BAD_GATEWAY",
+              message: "Cannot reach JupyterLab container. Container may still be initializing."
+            }
+          });
+        } else if (res && typeof res.writeHead === 'function' && !res.headersSent) {
           res.writeHead(502, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
               error: {
-                code: 'BAD_GATEWAY',
-                message: 'JupyterLab session container is unreachable or still starting up',
-              },
+                code: "BAD_GATEWAY",
+                message: "Cannot reach JupyterLab container. Container may still be initializing."
+              }
             })
           );
         } else if (res && typeof res.destroy === 'function') {
           res.destroy();
         }
-      },
-    },
+      }
+    }
   });
-
-  const wrapper = (req, res, next) => {
-    const url = req.originalUrl || req.url || '';
-    const match = url.match(/^(\/api\/lab\/sessions\/[^/]+\/proxy\/lab)(\?.*)?$/);
-    if (match) {
-      const targetUrl = match[1] + '/' + (match[2] || '');
-      return res.redirect(302, targetUrl);
-    }
-    return proxy(req, res, next);
-  };
-  wrapper.upgrade = (req, socket, head) => {
-    if (typeof proxy.upgrade === 'function') {
-      proxy.upgrade(req, socket, head);
-    }
-  };
-  return wrapper;
 }
 
 module.exports = { createServiceProxy, createLabProxy };

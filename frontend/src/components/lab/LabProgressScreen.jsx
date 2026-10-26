@@ -33,13 +33,14 @@ export const LabProgressScreen = ({ sessionId, onReady, onFailed, onBack }) => {
       });
     }, 600);
 
-    let consecutiveFailures = 0;
+    let pollCount = 0;
+    const MAX_POLLS = 40;
 
     const poll = async () => {
+      pollCount++;
       try {
         const data = await (typeof labApi.getSessionStatus === 'function' ? labApi.getSessionStatus(sessionId) : labApi.getSessionById(sessionId));
         if (!isMounted) return;
-        consecutiveFailures = 0;
         setSession(data);
 
         const sessionState = (data?.state || data?.status || '').toLowerCase();
@@ -60,17 +61,18 @@ export const LabProgressScreen = ({ sessionId, onReady, onFailed, onBack }) => {
         }
       } catch (err) {
         if (!isMounted) return;
-        consecutiveFailures++;
-        // Allow up to 4 consecutive retry polls (12s grace) for transient network/cloud blips
-        if (consecutiveFailures >= 4) {
+        console.warn(`[Lab Poll Warning] Poll attempt ${pollCount}/${MAX_POLLS} encountered transient issue:`, err.message);
+        // Do NOT abort immediately during provisioning. Only fail if all 40 retries (120s) are exhausted.
+        if (pollCount >= MAX_POLLS) {
           clearInterval(pollInterval);
           clearInterval(progressTimer);
-          setError(err.response?.data?.error?.message || 'Failed to check session status');
+          setError(err.response?.data?.error?.message || 'Failed to check session status after 120s timeout');
+          if (onFailed) onFailed({ error: 'Session launch timed out' });
         }
       }
     };
 
-    // Initial check + 3s polling per spec Section 8.1
+    // Initial check + 3s polling per spec
     poll();
     pollInterval = setInterval(poll, 3000);
 

@@ -50,11 +50,19 @@ app.use(cors({
 app.use((req, res, next) => {
   const contentType = req.headers['content-type'] || '';
   const url = (req.originalUrl || req.url || '').toLowerCase();
-  const isUploadPath = url.includes('/files') || url.includes('/attachments') || url.includes('/upload') || url.includes('/proxy');
-  if (contentType.toLowerCase().includes('multipart/form-data') || isUploadPath) {
+  const isUpload = contentType.toLowerCase().includes('multipart/form-data') ||
+                   url.includes('/versions') ||
+                   url.includes('/datasets') ||
+                   url.includes('/files') ||
+                   url.includes('/attachments') ||
+                   url.includes('/upload') ||
+                   url.includes('/documents') ||
+                   url.includes('/proxy');
+
+  if (isUpload) {
     return next();
   }
-  express.json()(req, res, next);
+  express.json({ limit: '10mb' })(req, res, next);
 });
 
 // 4. Gateway Health Check (public, no auth)
@@ -62,18 +70,29 @@ app.get('/healthz', (req, res) => {
   res.json({ status: 'ok', service: 'gateway' });
 });
 
-// 5. Rate limiters
+// 5. Un-throttled raw proxy for JupyterLab streaming, WebSockets & kernel burst traffic
+// Mounted before rate limiters and auth gatekeeper to prevent 429 kernel startup errors
+const labJupyterProxy = createLabProxy();
+app.jupyterProxy = labJupyterProxy;
+app.use('/api/lab/sessions/:id/proxy', (req, res, next) => {
+  // Clear baseUrl to prevent http-proxy-middleware from concatenating it with req.url
+  req.baseUrl = '';
+  req.url = req.originalUrl;
+  labJupyterProxy(req, res, next);
+});
+
+// 6. Rate limiters
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api', generalLimiter);
 
-// 6. JWT Authentication & Trust Header Injection
+// 7. JWT Authentication & Trust Header Injection
 app.use('/api', gatewayAuthMiddleware);
 
-// 7. Audit Logging for mutating actions
+// 8. Audit Logging for mutating actions
 app.use('/api', auditHookMiddleware);
 
-// 8. Local Storage Proxy endpoints for dev file uploads/downloads
+// 9. Local Storage Proxy endpoints for dev file uploads/downloads
 const fs = require('fs');
 app.post('/api/storage/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res, next) => {
   try {
@@ -110,7 +129,7 @@ app.get('/api/storage/download', async (req, res, next) => {
   }
 });
 
-// 9. Service Proxies
+// 10. Service Proxies
 // Auth Service Proxy (/api/auth/* -> dynamic SERVICE_URL_AUTH / AUTH_SERVICE_URL)
 const authProxy = createServiceProxy(() => process.env.AUTH_SERVICE_URL || process.env.SERVICE_URL_AUTH || 'http://localhost:5001', '/api');
 app.use('/api/auth', authProxy);
@@ -120,8 +139,9 @@ const experimentProxy = createServiceProxy(() => process.env.EXPERIMENT_SERVICE_
 app.use('/api/experiments', experimentProxy);
 app.use('/api/projects/:pid/experiments', experimentProxy);
 
-// Dataset Service Proxy (/api/projects/:pid/datasets -> dataset-service)
+// Dataset Service Proxy (/api/projects/:pid/datasets & /api/datasets -> dataset-service)
 const datasetProxy = createServiceProxy(() => process.env.DATASET_SERVICE_URL || process.env.SERVICE_URL_DATASET || 'http://localhost:5004', '/api');
+app.use('/api/datasets', datasetProxy);
 app.use('/api/projects/:pid/datasets', datasetProxy);
 
 // Document Service Proxy (/api/projects/:pid/documents & /api/documents -> document-service)
@@ -154,14 +174,9 @@ app.use('/api/projects/:pid/presence', activityProxy);
 const notificationProxy = createServiceProxy(() => process.env.NOTIFICATION_SERVICE_URL || process.env.SERVICE_URL_NOTIFICATION || 'http://localhost:5009', '/api');
 app.use('/api/notifications', notificationProxy);
 
-// Lab JupyterLab VM Proxy (/api/lab/sessions/:id/proxy/* -> target VM port 8888 with WebSocket support)
-const labJupyterProxy = createLabProxy();
-app.jupyterProxy = labJupyterProxy;
-app.use('/api/lab/sessions/:id/proxy', labJupyterProxy);
-
 // Lab Service Proxy (/api/lab/* -> lab-service)
-const labProxy = createServiceProxy(() => process.env.LAB_SERVICE_URL || process.env.SERVICE_URL_LAB || 'http://localhost:5010', '/api');
-app.use('/api/lab', labProxy);
+const labServiceProxy = createServiceProxy(() => process.env.LAB_SERVICE_URL || process.env.SERVICE_URL_LAB || 'http://localhost:5010', '/api');
+app.use('/api/lab', labServiceProxy);
 
 // Project Service Proxy (/api/projects/* -> dynamic SERVICE_URL_PROJECT / PROJECT_SERVICE_URL)
 const projectProxy = createServiceProxy(() => process.env.PROJECT_SERVICE_URL || process.env.SERVICE_URL_PROJECT || 'http://localhost:5002', '/api');

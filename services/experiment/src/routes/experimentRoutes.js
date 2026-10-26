@@ -60,6 +60,7 @@ router.delete('/projects/:pid/experiments/:id/files/:fileId', requireProjectRole
 // Standalone experiment endpoints (when proxied via /api/experiments)
 router.post('/experiments/:id/files', multipartMiddleware, uploadExperimentFile);
 router.post('/experiments/:id/attachments', multipartMiddleware, uploadExperimentFile);
+router.post('/:id/files', multipartMiddleware, uploadExperimentFile);
 
 // Traceability links
 router.get('/projects/:pid/experiments/:id/links', requireProjectRole('viewer'), getExperimentLinks);

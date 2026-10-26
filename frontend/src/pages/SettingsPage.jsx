@@ -21,7 +21,7 @@ export const SettingsPage = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [realtimePresence, setRealtimePresence] = useState(true);
 
-  const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:5000/api');
+  const apiUrl = import.meta.env.VITE_API_URL || '/api';
   const isDev = import.meta.env.DEV;
 
   const copyToClipboard = (text, label) => {

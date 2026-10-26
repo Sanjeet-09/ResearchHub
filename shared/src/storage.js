@@ -9,18 +9,32 @@ class LocalDiskStorageAdapter {
     }
   }
 
+  /**
+   * Resolve the public-facing base URL for storage endpoints.
+   * Priority: PUBLIC_API_URL > VITE_API_BASE_URL > '' (relative).
+   * Empty string produces relative URLs like /api/storage/... which work
+   * correctly when served behind the gateway or Firebase Hosting rewrites.
+   */
+  _resolveBaseUrl() {
+    const raw = process.env.PUBLIC_API_URL || process.env.VITE_API_BASE_URL || '';
+    return raw.replace(/\/api\/?$/, '');
+  }
+
   _getFilePath(bucket, key) {
-    const bucketDir = path.join(this.baseDir, bucket);
+    const bucketDir = bucket ? path.join(this.baseDir, bucket) : this.baseDir;
     if (!fs.existsSync(bucketDir)) {
       fs.mkdirSync(bucketDir, { recursive: true });
     }
-    return path.join(bucketDir, key.replace(/\//g, '_'));
+    const cleanKey = String(key || '');
+    const flatPath = path.join(bucketDir, cleanKey.replace(/\//g, '_'));
+    if (fs.existsSync(flatPath)) return flatPath;
+    const nestedPath = path.join(bucketDir, cleanKey);
+    if (fs.existsSync(nestedPath)) return nestedPath;
+    return flatPath;
   }
 
   async getSignedUploadUrl(bucket, key, contentType = 'application/octet-stream', expiresMinutes = 15) {
-    // In local mode, returns a mock local API upload endpoint URL or direct token
-    const rawBaseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:5000';
-    const baseUrl = rawBaseUrl.replace(/\/api\/?$/, '');
+    const baseUrl = this._resolveBaseUrl();
     const filename = encodeURIComponent(key);
     return {
       uploadUrl: `${baseUrl}/api/storage/upload?bucket=${bucket}&key=${filename}`,
@@ -29,8 +43,7 @@ class LocalDiskStorageAdapter {
   }
 
   async getSignedDownloadUrl(bucket, key, expiresMinutes = 10) {
-    const rawBaseUrl = process.env.VITE_API_BASE_URL || 'http://localhost:5000';
-    const baseUrl = rawBaseUrl.replace(/\/api\/?$/, '');
+    const baseUrl = this._resolveBaseUrl();
     const filename = encodeURIComponent(key);
     return `${baseUrl}/api/storage/download?bucket=${bucket}&key=${filename}`;
   }

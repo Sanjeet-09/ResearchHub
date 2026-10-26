@@ -109,7 +109,7 @@ export const LabSessionView = ({
     const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
     const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
     const proxyBase = session?.id
-      ? `/api/lab/sessions/${session.id}/proxy/lab/${tokenQuery}`
+      ? `/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
       : session?.url;
 
     if (proxyBase) {
@@ -145,16 +145,21 @@ export const LabSessionView = ({
 
     const poll = async () => {
       try {
-        const fresh = await labApi.getSessionById(session.id);
-        setSession(fresh);
-        const isFreshReady = fresh?.ready === undefined || fresh?.ready === true;
-        if (fresh && (fresh.state === 'running' || (fresh.status && fresh.status.toUpperCase() === 'RUNNING')) && isFreshReady) {
-          setContainerReady(true);
-          setStartupProgress(100);
+        const fresh = await (typeof labApi.getSessionStatus === 'function'
+          ? labApi.getSessionStatus(session.id)
+          : labApi.getSessionById(session.id));
+        if (fresh) {
+          setSession(fresh);
+          const isFreshReady = fresh?.ready === undefined || fresh?.ready === true;
+          const statusLower = (fresh.state || fresh.status || '').toLowerCase();
+          if (statusLower === 'running' && isFreshReady) {
+            setContainerReady(true);
+            setStartupProgress(100);
+          }
+          if (onSessionUpdated) onSessionUpdated(fresh);
         }
-        if (onSessionUpdated) onSessionUpdated(fresh);
       } catch (err) {
-        // Ignored
+        console.warn('[LabSessionView Poll Warning]', err.message);
       }
     };
 
@@ -254,10 +259,18 @@ export const LabSessionView = ({
       if (onSessionUpdated) onSessionUpdated(updatedSession);
 
       // Begin polling GET /api/lab/sessions/:id/status until the new VM responds on port 8888 and transitions to RUNNING
+      let pollAttempts = 0;
+      const MAX_POLL_ATTEMPTS = 45; // 45 × 2s = 90s max
       const pollInterval = setInterval(async () => {
+        pollAttempts++;
+        if (pollAttempts > MAX_POLL_ATTEMPTS) {
+          clearInterval(pollInterval);
+          setErrorMessage('Session took too long to start. Check the Lab tab for current status.');
+          return;
+        }
         try {
           const fresh = await labApi.getSessionStatus(session.id).catch(() => labApi.getSessionById(session.id));
-          if (!fresh) return;
+          if (!fresh) return; // Transient failure — keep polling
           const freshState = (fresh.state || fresh.status || '').toUpperCase();
           setSession(fresh);
           if (onSessionUpdated) onSessionUpdated(fresh);
@@ -271,7 +284,9 @@ export const LabSessionView = ({
               setErrorMessage(fresh.last_error);
             }
           }
-        } catch (_) {}
+        } catch (_) {
+          // Transient network error — keep polling, don't fail the modal
+        }
       }, 2000);
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to restart session';
@@ -565,7 +580,7 @@ export const LabSessionView = ({
               const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
               const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
               const proxyBase = session?.id
-                ? `/api/lab/sessions/${session.id}/proxy/lab/${tokenQuery}`
+                ? `/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
                 : session.url;
 
               return (

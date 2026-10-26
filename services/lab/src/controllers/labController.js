@@ -239,16 +239,31 @@ async function createSession(req, res, next) {
     );
     await insertSessionEvent(client, sessionId, 'created', { profileKey });
 
-    res.status(202).json({
-      session: { id: sessionId, state: 'provisioning', status: 'provisioning', name: name.trim(), profileKey },
+    const newSession = {
+      id: sessionId,
+      state: 'provisioning',
+      status: 'provisioning',
+      name: name.trim(),
+      profileKey,
+    };
+
+    res.status(201).json({
+      session: newSession,
     });
 
-    // Asynchronously provision the container
-    _provisionSession(sessionId, userId, projectId, profile, jupyterToken, workspacePrefix, name.trim()).catch(
-      (err) => {
-        logger.error({ err: err.message, sessionId }, 'Provision failed');
+    // Asynchronously provision the container in the background
+    (async () => {
+      try {
+        await _provisionSession(sessionId, userId, projectId, profile, jupyterToken, workspacePrefix, name.trim());
+      } catch (err) {
+        console.error(`[Lab Background] VM provisioning failed for session ${sessionId}:`, err);
+        await pool.query('UPDATE lab_sessions SET state = $1, last_error = $2 WHERE id = $3', [
+          'failed',
+          err.message,
+          sessionId,
+        ]);
       }
-    );
+    })();
   } catch (err) {
     next(err);
   } finally {
@@ -312,12 +327,20 @@ async function _provisionSession(sessionId, userId, projectId, profile, jupyterT
       return;
     }
 
+    let externalIp = null;
+    if (url) {
+      try {
+        externalIp = new URL(url).hostname;
+      } catch (_) {}
+    }
+
     await client.query(
       `UPDATE lab_sessions
        SET state = 'running', cloud_run_service = $1, gce_instance_name = $1, url = $2,
-           jupyter_token_enc = $3, last_active_at = NOW()
-       WHERE id = $4`,
-      [cname, url, encToken, sessionId]
+           public_ip = COALESCE($3, public_ip),
+           jupyter_token_enc = $4, last_active_at = NOW()
+       WHERE id = $5`,
+      [cname, url, externalIp, encToken, sessionId]
     );
     await insertSessionEvent(client, sessionId, 'running', { containerName: cname, url });
 
@@ -788,13 +811,21 @@ async function _executeResume(session) {
       return;
     }
 
+    let externalIp = null;
+    if (url) {
+      try {
+        externalIp = new URL(url).hostname;
+      } catch (_) {}
+    }
+
     await client.query(
       `UPDATE lab_sessions
        SET state = 'running', cloud_run_service = $1, url = $2,
-           jupyter_token_enc = $3, last_active_at = NOW(),
+           public_ip = COALESCE($3, public_ip),
+           jupyter_token_enc = $4, last_active_at = NOW(),
            started_at = NOW(), paused_at = NULL
-       WHERE id = $4`,
-      [cname, url, encToken, session.id]
+       WHERE id = $5`,
+      [cname, url, externalIp, encToken, session.id]
     );
     await insertSessionEvent(client, session.id, 'running', { resumed: true });
 
@@ -1580,7 +1611,11 @@ async function restartSession(req, res, next) {
     let instStatus = 'NOT_FOUND';
     try {
       if (typeof driver.status === 'function') {
-        const rawStatus = await driver.status(instName, session.gce_zone);
+        const STATUS_TIMEOUT_MS = 3000;
+        const rawStatus = await Promise.race([
+          driver.status(instName, session.gce_zone),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('status_timeout')), STATUS_TIMEOUT_MS)),
+        ]);
         if (typeof rawStatus === 'object' && rawStatus !== null) {
           instStatus = rawStatus.status;
         } else {
@@ -1606,26 +1641,35 @@ async function restartSession(req, res, next) {
       );
       await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey, resumedExisting: true });
 
-      res.status(202).json({
-        session: {
-          id,
-          state: 'provisioning',
-          status: 'provisioning',
-          name: sessionName,
-          profileKey: targetProfileKey,
-          instance_name: instName,
-        },
+      const restartedSession = {
+        id,
+        state: 'provisioning',
+        status: 'provisioning',
+        name: sessionName,
+        profileKey: targetProfileKey,
+        instance_name: instName,
+      };
+
+      res.status(200).json({
+        session: restartedSession,
       });
 
       client.release();
       client = null;
 
-      _resumeStoppedInstance(id, userId, session.project_id, profile, jupyterToken, instName, session.gce_zone).catch(
-        (err) => {
-          console.error('[Lab] Restart failed:', err);
+      (async () => {
+        try {
+          await _resumeStoppedInstance(id, userId, session.project_id, profile, jupyterToken, instName, session.gce_zone);
+        } catch (err) {
+          console.error(`[Lab Background] VM restart failed for session ${id}:`, err);
           logger.error({ err: err.message, sessionId: id }, 'Restart startContainer failed');
+          await pool.query('UPDATE lab_sessions SET state = $1, last_error = $2 WHERE id = $3', [
+            'failed',
+            err.message,
+            id,
+          ]);
         }
-      );
+      })();
     } else {
       // The instance does not exist in GCE (deleted to scale to zero): re-provision
       const cleanId = id.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 8);
@@ -1642,27 +1686,36 @@ async function restartSession(req, res, next) {
       );
       await insertSessionEvent(client, id, 'restarted', { profileKey: targetProfileKey, reprovisioned: true, newInstanceName });
 
-      res.status(202).json({
-        session: {
-          id,
-          state: 'provisioning',
-          status: 'provisioning',
-          name: sessionName,
-          profileKey: targetProfileKey,
-          instance_name: newInstanceName,
-          gce_instance_name: newInstanceName,
-        },
+      const restartedSession = {
+        id,
+        state: 'provisioning',
+        status: 'provisioning',
+        name: sessionName,
+        profileKey: targetProfileKey,
+        instance_name: newInstanceName,
+        gce_instance_name: newInstanceName,
+      };
+
+      res.status(200).json({
+        session: restartedSession,
       });
 
       client.release();
       client = null;
 
-      _provisionSession(id, userId, session.project_id, profile, jupyterToken, workspacePrefix, sessionName, newInstanceName).catch(
-        (err) => {
-          console.error('[Lab] Restart failed:', err);
+      (async () => {
+        try {
+          await _provisionSession(id, userId, session.project_id, profile, jupyterToken, workspacePrefix, sessionName, newInstanceName);
+        } catch (err) {
+          console.error(`[Lab Background] VM restart failed for session ${id}:`, err);
           logger.error({ err: err.message, sessionId: id }, 'Restart provision failed');
+          await pool.query('UPDATE lab_sessions SET state = $1, last_error = $2 WHERE id = $3', [
+            'failed',
+            err.message,
+            id,
+          ]);
         }
-      );
+      })();
     }
   } catch (err) {
     if (client) {
@@ -1698,12 +1751,20 @@ async function _resumeStoppedInstance(sessionId, userId, projectId, profile, jup
       }
     }
 
+    let externalIp = null;
+    if (url) {
+      try {
+        externalIp = new URL(url).hostname;
+      } catch (_) {}
+    }
+
     await client.query(
       `UPDATE lab_sessions
        SET state = 'running', cloud_run_service = $1, gce_instance_name = $1, url = COALESCE($2, url),
-           jupyter_token_enc = $3, last_active_at = NOW()
-       WHERE id = $4`,
-      [cname, url, encToken, sessionId]
+           public_ip = COALESCE($3, public_ip),
+           jupyter_token_enc = $4, last_active_at = NOW()
+       WHERE id = $5`,
+      [cname, url, externalIp, encToken, sessionId]
     );
     await insertSessionEvent(client, sessionId, 'running', { restarted: true, containerName: cname });
   } catch (err) {
@@ -1758,19 +1819,28 @@ async function getSessionStatus(req, res, next) {
     const instName = session.gce_instance_name || session.cloud_run_service || session.instance_name || session.id;
     let driverStatus = null;
     let isReady = false;
+    let driverIp = null;
 
     try {
       if (typeof driver.status === 'function') {
-        const rawStatus = await driver.status(instName, session.gce_zone);
+        const rawStatus = await Promise.race([
+          driver.status(instName, session.gce_zone),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Probe timeout')), 2500)),
+        ]);
         if (typeof rawStatus === 'object' && rawStatus !== null) {
           driverStatus = rawStatus.status;
-          isReady = !!rawStatus.ready;
+          isReady = Boolean(rawStatus.ready);
+          driverIp = rawStatus.ip || null;
         } else {
           driverStatus = rawStatus;
           isReady = rawStatus === 'running';
         }
       }
-    } catch (_) {}
+    } catch (statusErr) {
+      // Never return 500 while provisioning; fallback cleanly to DB state
+      logger.warn({ err: statusErr.message, instName }, 'Driver status probe timed out or failed — using DB state');
+      driverStatus = null;
+    }
 
     // Decrypt token for owner if available
     let jupyterToken = undefined;
@@ -1792,25 +1862,49 @@ async function getSessionStatus(req, res, next) {
       }
     }
 
-    res.json({
-      session: {
-        id: session.id,
-        name: session.name,
-        state: session.state,
-        status: (session.state || '').toUpperCase(),
-        driverStatus,
-        ready: driverStatus !== null ? isReady : (session.state === 'running'),
-        url: isOwner ? sessionUrl : undefined,
-        token: isOwner ? jupyterToken : undefined,
-        port: isOwner ? port : undefined,
-        started_at: session.started_at,
-        stopped_at: session.stopped_at,
-        last_error: session.last_error,
-        instance_name: instName,
-      },
+    const readyState = driverStatus !== null ? isReady : (session.state === 'running');
+    const rawStatus = driverStatus || session.state || 'provisioning';
+    const finalStatus = typeof rawStatus === 'string' ? rawStatus.toUpperCase() : rawStatus;
+    const publicIp = driverIp || session.public_ip || null;
+
+    if (driverIp && session.public_ip !== driverIp) {
+      pool.query('UPDATE lab_sessions SET public_ip = $1 WHERE id = $2', [driverIp, session.id]).catch(() => {});
+    }
+
+    const payload = {
+      id: session.id,
+      name: session.name,
+      state: session.state,
+      status: finalStatus,
+      ready: readyState,
+      public_ip: publicIp,
+      driverStatus,
+      url: isOwner ? sessionUrl : undefined,
+      token: isOwner ? jupyterToken : undefined,
+      port: isOwner ? port : undefined,
+      started_at: session.started_at,
+      stopped_at: session.stopped_at,
+      last_error: session.last_error,
+      instance_name: instName,
+    };
+
+    return res.json({
+      ...payload,
+      session: payload,
     });
   } catch (err) {
-    next(err);
+    logger.warn({ err: err.message, sessionId: req.params?.id }, 'getSessionStatus fallback cleanly');
+    const fallbackPayload = {
+      id: req.params?.id,
+      status: 'provisioning',
+      state: 'provisioning',
+      ready: false,
+      public_ip: null,
+    };
+    return res.json({
+      ...fallbackPayload,
+      session: fallbackPayload,
+    });
   }
 }
 

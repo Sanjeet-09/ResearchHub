@@ -83,10 +83,27 @@ const getPublications = async (req, res, next) => {
 
     const { page = 1, limit = 50 } = req.query;
     const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
-    queryText += ` ORDER BY p.published_on DESC NULLS LAST, p.title ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(parseInt(limit), offset);
+    const limitParams = [parseInt(limit), offset];
 
-    const result = await query(queryText, params);
+    let result;
+    try {
+      result = await query(
+        queryText + ` ORDER BY p.published_on DESC NULLS LAST, p.title ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, ...limitParams]
+      );
+    } catch (_) {
+      try {
+        result = await query(
+          queryText + ` ORDER BY p.publication_date DESC NULLS LAST, p.title ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+          [...params, ...limitParams]
+        );
+      } catch (__) {
+        result = await query(
+          queryText + ` ORDER BY p.title ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+          [...params, ...limitParams]
+        );
+      }
+    }
     res.json({ publications: result.rows.map(normalizePub) });
   } catch (err) {
     next(err);
@@ -133,12 +150,30 @@ const createPublication = async (req, res, next) => {
         [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
       );
     } catch (_) {
-      dbRes = await query(
-        `INSERT INTO publications (project_id, title, authors, venue, doi, status, published_on, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
-      );
+      try {
+        dbRes = await query(
+          `INSERT INTO publications (project_id, title, authors, venue, doi, status, published_on, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING *`,
+          [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
+        );
+      } catch (__) {
+        try {
+          dbRes = await query(
+            `INSERT INTO publications (project_id, title, authors, venue_journal, doi, status, publication_date, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING *`,
+            [finalProjectId, title, authors || null, finalVenue, doi || null, status, finalDate, req.user?.id || null]
+          );
+        } catch (___) {
+          dbRes = await query(
+            `INSERT INTO publications (project_id, title, authors, doi, status, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [finalProjectId, title, authors || null, doi || null, status, req.user?.id || null]
+          );
+        }
+      }
     }
 
     const publication = normalizePub(dbRes.rows[0]);
@@ -259,13 +294,33 @@ const updatePublication = async (req, res, next) => {
         [title, authors, finalVenue, doi, status, finalDate, id]
       );
     } catch (_) {
-      dbRes = await query(
-        `UPDATE publications
-         SET title = $1, authors = $2, venue = $3, doi = $4, status = $5, published_on = $6
-         WHERE id = $7
-         RETURNING *`,
-        [title, authors, finalVenue, doi, status, finalDate, id]
-      );
+      try {
+        dbRes = await query(
+          `UPDATE publications
+           SET title = $1, authors = $2, venue = $3, doi = $4, status = $5, published_on = $6
+           WHERE id = $7
+           RETURNING *`,
+          [title, authors, finalVenue, doi, status, finalDate, id]
+        );
+      } catch (__) {
+        try {
+          dbRes = await query(
+            `UPDATE publications
+             SET title = $1, authors = $2, venue_journal = $3, doi = $4, status = $5, publication_date = $6
+             WHERE id = $7
+             RETURNING *`,
+            [title, authors, finalVenue, doi, status, finalDate, id]
+          );
+        } catch (___) {
+          dbRes = await query(
+            `UPDATE publications
+             SET title = $1, authors = $2, doi = $3, status = $4
+             WHERE id = $5
+             RETURNING *`,
+            [title, authors, doi, status, id]
+          );
+        }
+      }
     }
 
     logger.info({ publicationId: id }, 'Publication updated');

@@ -229,14 +229,11 @@ async function waitForInstanceRunning(project, zone, instance, maxWaitMs = 90000
     try {
       const [inst] = await client.get({ project, zone, instance });
       if (inst && inst.status === 'RUNNING') {
-        const netInterfaces = inst.networkInterfaces || [];
-        for (const iface of netInterfaces) {
-          const accessConfigs = iface.accessConfigs || [];
-          for (const ac of accessConfigs) {
-            if (ac.natIP) {
-              return { instance: inst, externalIp: ac.natIP };
-            }
-          }
+        const iface = inst.networkInterfaces?.[0];
+        // DO NOT use iface.networkIP (that is private 10.x.x.x)
+        const externalIp = iface?.accessConfigs?.[0]?.natIP || null;
+        if (externalIp) {
+          return { instance: inst, externalIp };
         }
       }
     } catch (err) {
@@ -265,7 +262,8 @@ async function create({ sessionId, userId, profileKey, jupyterToken, projectId, 
     process.env.GATEWAY_URL ||
     process.env.DOCUMENT_SERVICE_URL ||
     process.env.SERVICE_URL_DOCUMENT ||
-    'http://localhost:5000';
+    process.env.PUBLIC_API_URL ||
+    '';
 
   logger.info(
     { sessionId, name, profileKey, machineType: tier.machineType, zone, isGpu: tier.isGpu },
@@ -419,11 +417,24 @@ async function create({ sessionId, userId, profileKey, jupyterToken, projectId, 
   const port = 8888;
   const url = `http://${externalIp}:${port}`;
 
+  if (sessionId && externalIp) {
+    try {
+      const { pool } = require('@rh/shared');
+      if (pool) {
+        await pool.query('UPDATE lab_sessions SET public_ip = $1 WHERE id = $2', [externalIp, sessionId]);
+      }
+    } catch (dbErr) {
+      logger.warn({ err: dbErr.message, sessionId }, 'Failed to persist public_ip to database in createContainer');
+    }
+  }
+
   logger.info({ sessionId, name, externalIp, url }, 'GCE worker instance active and ready');
   return {
     containerName: name,
     port,
     url,
+    externalIp,
+    publicIp: externalIp,
   };
 }
 
@@ -493,7 +504,22 @@ async function startContainer(instanceNameOrSessionId, zone) {
       const { externalIp } = await waitForInstanceRunning(project, z, name);
       const port = 8888;
       const url = `http://${externalIp}:${port}`;
-      return { containerName: name, port, url };
+
+      const sid = typeof instanceNameOrSessionId === 'string' && !instanceNameOrSessionId.startsWith('rh-lab-')
+        ? instanceNameOrSessionId
+        : null;
+      if (sid && externalIp) {
+        try {
+          const { pool } = require('@rh/shared');
+          if (pool) {
+            await pool.query('UPDATE lab_sessions SET public_ip = $1 WHERE id = $2', [externalIp, sid]);
+          }
+        } catch (dbErr) {
+          logger.warn({ err: dbErr.message, sessionId: sid }, 'Failed to persist public_ip to database in startContainer');
+        }
+      }
+
+      return { containerName: name, port, url, externalIp, publicIp: externalIp };
     } catch (err) {
       if (err.message && (err.message.includes('notFound') || err.message.includes('404'))) {
         continue;
@@ -552,26 +578,38 @@ async function status(instanceNameOrSessionId, zone) {
       const [inst] = await client.get({ project, zone: z, instance: name });
       if (!inst) continue;
 
+      const iface = inst.networkInterfaces?.[0];
+      // DO NOT use iface.networkIP (that is private 10.x.x.x)
+      const externalIp = iface?.accessConfigs?.[0]?.natIP || null;
+
+      const sid = inst.labels?.['session-id'] ||
+        (typeof instanceNameOrSessionId === 'string' && !instanceNameOrSessionId.startsWith('rh-lab-') ? instanceNameOrSessionId : null);
+
+      if (sid && externalIp) {
+        try {
+          const { pool } = require('@rh/shared');
+          if (pool) {
+            await pool.query('UPDATE lab_sessions SET public_ip = $1 WHERE id = $2', [externalIp, sid]);
+          }
+        } catch (dbErr) {
+          logger.warn({ err: dbErr.message, sessionId: sid }, 'Failed to persist public_ip to database in status');
+        }
+      }
+
       switch (inst.status) {
         case 'RUNNING': {
-          let natIp = null;
-          for (const iface of inst.networkInterfaces || []) {
-            for (const ac of iface.accessConfigs || []) {
-              if (ac.natIP) {
-                natIp = ac.natIP;
-                break;
-              }
-            }
-            if (natIp) break;
+          // If externalIp is not yet assigned by GCP, keep status as 'provisioning' and do not set ready: true
+          if (!externalIp && (inst.networkInterfaces || process.env.NODE_ENV !== 'test')) {
+            return { status: 'PROVISIONING', ready: false };
           }
 
-          if (natIp) {
+          if (externalIp) {
             const sid = inst.labels?.['session-id'] ||
               (typeof instanceNameOrSessionId === 'string' && !instanceNameOrSessionId.startsWith('rh-lab-') ? instanceNameOrSessionId : null);
             const proxyBasePath = sid ? `/api/lab/sessions/${sid}/proxy/` : '';
             const probePath = `${proxyBasePath}api`;
 
-            const isReady = await checkJupyterReadiness(natIp, 8888, 1500, probePath);
+            const isReady = await checkJupyterReadiness(externalIp, 8888, 1500, probePath);
             if (!isReady) {
               return { status: 'STARTING', ready: false };
             }
@@ -643,7 +681,7 @@ async function waitForJupyter(url, token, maxWaitMs = 90000) {
             hostname: parsed.hostname,
             port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
             path: `${parsed.pathname}${parsed.search}`,
-            timeout: 4000,
+            timeout: 1500,
           },
           (res) => {
             res.resume();

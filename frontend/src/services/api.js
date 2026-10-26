@@ -19,7 +19,7 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 60000, // Increase global timeout to 60s
 });
 
 // Request interceptor: Attach JWT token if available
@@ -193,6 +193,7 @@ export const experimentApi = {
     }
     const res = await axios.post(uploadUrl, file, {
       headers,
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -217,6 +218,7 @@ export const experimentApi = {
 
     const res = await api.post(endpoint, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 minutes for uploads
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -291,6 +293,7 @@ export const datasetApi = {
     }
     const res = await axios.post(uploadUrl, file, {
       headers,
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -299,6 +302,38 @@ export const datasetApi = {
       },
     });
     return res.data;
+  },
+
+  uploadVersion: async (projectId, datasetId, formData, onProgress) => {
+    const endpoint = projectId
+      ? `/projects/${projectId}/datasets/${datasetId}/versions`
+      : `/datasets/${datasetId}/versions`;
+
+    const res = await api.post(endpoint, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 minutes for uploads
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data.version;
+  },
+
+  uploadDatasetVersion: async (datasetId, formData, onProgress) => {
+    const res = await api.post(`/datasets/${datasetId}/versions`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 minutes for uploads
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return res.data.version || res.data;
   },
 
   confirmVersion: async (projectId, datasetId, confirmData) => {
@@ -349,6 +384,7 @@ export const documentApi = {
     }
     const res = await axios.post(uploadUrl, file, {
       headers,
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -552,7 +588,7 @@ export const labApi = {
   },
 
   createSession: async (sessionData) => {
-    const res = await api.post('/lab/sessions', sessionData);
+    const res = await api.post('/lab/sessions', sessionData, { timeout: 60000 });
     return res.data.session;
   },
 
@@ -577,22 +613,22 @@ export const labApi = {
   },
 
   pauseSession: async (id) => {
-    const res = await api.post(`/lab/sessions/${id}/pause`);
+    const res = await api.post(`/lab/sessions/${id}/pause`, {}, { timeout: 60000 });
     return res.data.session;
   },
 
   resumeSession: async (id) => {
-    const res = await api.post(`/lab/sessions/${id}/resume`);
+    const res = await api.post(`/lab/sessions/${id}/resume`, {}, { timeout: 60000 });
     return res.data.session;
   },
 
   stopSession: async (id, exportNotebooks = false) => {
-    const res = await api.post(`/lab/sessions/${id}/stop`, { exportNotebooks });
+    const res = await api.post(`/lab/sessions/${id}/stop`, { exportNotebooks }, { timeout: 60000 });
     return res.data.session;
   },
 
   exportNotebooks: async (id) => {
-    const res = await api.post(`/lab/sessions/${id}/export`);
+    const res = await api.post(`/lab/sessions/${id}/export`, {}, { timeout: 60000 });
     return res.data;
   },
 
@@ -607,13 +643,13 @@ export const labApi = {
   },
 
   restartSession: async (id, data = {}) => {
-    const res = await api.post(`/lab/sessions/${id}/restart`, data);
+    const res = await api.post(`/lab/sessions/${id}/restart`, data, { timeout: 60000 });
     return res.data.session;
   },
 
   getSessionStatus: async (id) => {
-    const res = await api.get(`/lab/sessions/${id}/status`);
-    return res.data.session;
+    const res = await api.get(`/lab/sessions/${id}/status`, { timeout: 15000 });
+    return res.data.session || res.data;
   },
 
   getNotebook: async (id) => {

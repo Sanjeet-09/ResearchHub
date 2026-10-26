@@ -1,168 +1,224 @@
-# Antigravity Task: Comprehensive Fix for Lab Workspace, Document Viewer, Experiments, Publications & Timeline
+# Antigravity Master Task: Fix JupyterLab Redirect Loop, Status Polling Crash & Dataset Version Upload (35% Stall)
 
-### Critical Architecture & System Guardrails
-Do NOT regress or alter any of the following working implementations:
-* Maintain dynamic disk resolution and high-performance CPU flags (AMX/AVX-512) in `services/lab/src/drivers/gceDriver.js`.
-* Maintain Cloud Run sizing (`1Gi` memory, `120s` timeout) for `rh-lab`.
-* Maintain automatic VM deletion on stop/edit to avoid idle cloud compute costs.
-* Maintain existing database migrations, JWT verification, and multipart upload handling.
+### Critical Live Bugs Addressed
+1. **JupyterLab `ERR_TOO_MANY_REDIRECTS`:** Browser reports `This page isn't working — redirected you too many times` on `/api/lab/sessions/:id/proxy/lab`[cite: 15].
+2. **Premature "Session Launch Failed":** Status check crashes during GCE boot, causing `LabSessionView` to immediately fail with `Failed to check session status`.
+3. **Dataset Version Upload Stalls at 35%:** Upload progress reaches 35% and fails with `Failed to upload version` alert popup.
+4. **Document Viewer & Content Streaming:** `.ipynb` and `.md` files in the Documents tab fail to open or preview[cite: 10].
+5. **Experiment Dropzone & Activity Timeline:** Missing multipart body passthrough and activity log persistence[cite: 9, 11].
+
+CRITICAL SYSTEM GUARDRAIL: Do NOT alter or regress:
+* High-performance CPU flags (AMX/AVX-512) and dynamic disk size calculation in `services/lab/src/drivers/gceDriver.js`.
+* Cloud Run memory (`1Gi`) and timeout (`120s`) for `rh-lab`.
+* Automatic VM deletion on stop/cleanup to prevent idle compute billing.
+* Database connection pools, migrations, and JWT verification.
 
 ---
 
-### Part 1: Fix JupyterLab Subpath Assets (White Screen) & Proxy Alignment
+### Part 1: Fix JupyterLab `ERR_TOO_MANY_REDIRECTS` (The Ping-Pong Loop)
 
 #### Root Cause:
-When accessing `/api/lab/sessions/:id/proxy/lab`, JupyterLab defaults to requesting scripts and themes from the root (`/static/...`, `/api/...`, `main.js`). The browser routes these requests to Firebase Hosting, which falls back to serving `index.html` (`text/html`), causing MIME type errors and a blank white screen[cite: 9]. Additionally, internal token checks trigger unwanted HTML login redirects on sub-resource requests[cite: 9].
+In the previous fix, a 302 redirect was added in Gateway's `proxy.js` to redirect `/api/lab/sessions/:id/proxy/lab` $\rightarrow$ `/api/lab/sessions/:id/proxy/lab/`[cite: 15].
+However, JupyterLab's Tornado webserver handles `/lab` as its canonical application route. When JupyterLab receives `/lab/`, Tornado automatically responds with a 302 redirect back to `/lab`! 
+This creates an infinite redirect ping-pong loop between the Gateway and JupyterLab:
+`Gateway (/lab -> /lab/) -> JupyterLab (/lab/ -> /lab) -> Gateway (/lab -> /lab/)` $\rightarrow$ `ERR_TOO_MANY_REDIRECTS`[cite: 15].
 
 #### Implementation Steps:
-1. **Dynamic Base URL & Startup Script in `services/lab/src/drivers/gceDriver.js`:**
-   - Interpolate the session ID into the proxy base path:
-     ```javascript
-     const proxyBasePath = `/api/lab/sessions/${session.id}/proxy/`;
-     ```
-   - In the startup script Docker launch command:
-     - Bind to `0.0.0.0` on port `8888`.
-     - Pass `--ServerApp.base_url="${proxyBasePath}"` so Jupyter prefixes all internal links, scripts, and API calls.
-     - Pass `--ServerApp.default_url="/lab"`.
-     - Disable internal token/password checks (the API Gateway and GCE firewall manage authentication):
-       `--ServerApp.token='' --ServerApp.password='' --ServerApp.disable_check_xsrf=True --ServerApp.allow_origin='*'`.
-     - Configure frame ancestors so the iframe renders without CSP blocks:
-       `--ServerApp.tornado_settings="{'headers': {'Content-Security-Policy': \"frame-ancestors 'self' https://*.web.app https://*.run.app https://*.firebaseapp.com http://localhost:3000 http://localhost:5000\"}}"`.
-     - Ensure the container volume is mounted to `/opt/researchhub/work` and owned by UID `1000:1000`.
+1. **Remove Trailing-Slash Redirect in `services/gateway/src/middleware/proxy.js`:**
+   - Delete any `res.redirect(302, .../lab/)` redirect handlers for `/lab`.
+   - Pass both `/lab` and all sub-resources directly through to the target VM without redirecting:
+   ```javascript
+   // services/gateway/src/middleware/proxy.js
+   const { createProxyMiddleware } = require('http-proxy-middleware');
 
-2. **Readiness Probe in `gceDriver.status(instanceName, zone)`:**
-   - When GCE indicates the VM is running, issue a probe to `http://<vm-ip>:8888${proxyBasePath}api` with a 1.5s timeout.
-   - Return `{ status: 'provisioning', ready: false }` while unreachable.
-   - Return `{ status: 'running', ready: true }` only after Jupyter responds with HTTP 200/302.
+   function createLabProxy() {
+     return createProxyMiddleware({
+       target: '[http://127.0.0.1:8888](http://127.0.0.1:8888)', // Dynamically overridden by router
+       router: async (req) => {
+         const sessionId = req.params.id;
+         const targetUrl = await getLabSessionTargetUrl(sessionId); // Resolves http://<vm-ip>:8888
+         return targetUrl;
+       },
+       changeOrigin: true,
+       ws: true,
+       proxyTimeout: 15000,
+       timeout: 15000,
+       // Do NOT strip pathRewrite if Jupyter is configured with base_url
+       on: {
+         proxyRes: (proxyRes) => {
+           delete proxyRes.headers['x-frame-options'];
+           proxyRes.headers['content-security-policy'] =
+             "frame-ancestors 'self' https://*.web.app https://*.run.app https://*.firebaseapp.com http://localhost:3000 http://localhost:5000";
+         },
+         error: (err, req, res) => {
+           console.warn('[Lab Proxy Error]', err.message);
+           if (res && !res.headersSent && typeof res.status === 'function') {
+             res.status(503).json({ error: 'Lab container is booting or unreachable', ready: false });
+           }
+         }
+       }
+     });
+   }
 
-3. **Proxy Alignment in `services/gateway/src/middleware/proxy.js`:**
-   - Because Jupyter is started with `base_url`, forward the path intact without stripping `/api/lab/sessions/:id/proxy/`.
-   - Ensure WebSocket upgrades (`ws: true`) and `changeOrigin: true` are enabled.
-   - Normalize trailing slashes: automatically redirect `/api/lab/sessions/:id/proxy/lab` to `/api/lab/sessions/:id/proxy/lab/`.
+   Align Base URL in services/lab/src/drivers/gceDriver.js:
 
-4. **Frontend URLs in `frontend/src/components/lab/LabSessionView.jsx`:**
-   - Update both the `<iframe>` `src` and the "Open Tab ↗" link to include the trailing slash:
-     ```javascript
-     const proxyUrl = `/api/lab/sessions/${session.id}/proxy/lab/`;
-     ```
-   - Retain the container readiness progress overlay (0%–100%) during `provisioning` and `starting` states. Do not mount the `<iframe>` until the status endpoint reports `running` with `ready: true`.
+Ensure the Docker startup command sets --ServerApp.base_url="/api/lab/sessions/${session.id}/proxy/" and --ServerApp.default_url="/lab".
 
----
+Ensure tokens and passwords are fully disabled internally:--ServerApp.token='' --ServerApp.password='' --ServerApp.disable_check_xsrf=True --ServerApp.allow_origin='*'.
 
-### Part 2: Safe Session Restart (Ephemeral VM Re-Provisioning)
+Frontend Canonical URL in frontend/src/components/lab/LabSessionView.jsx:
 
-#### Root Cause:
-Stopping a session deletes the VM to halt billing (`gceDriver.deleteContainer`)[cite: 7]. Calling `POST /api/lab/sessions/:id/restart` invokes `instancesClient.start()` on a non-existent instance, returning `404 NOT_FOUND` and an HTTP 500 error[cite: 7, 8].
+Target the canonical /lab URL without an artificially forced trailing slash:
 
-#### Implementation Steps:
-1. **Update `restartSession` in `services/lab/src/controllers/labController.js`:**
-   - Query GCE status. If the instance was deleted on stop (`NOT_FOUND`):
-     - Do NOT call `instancesClient.start()`.
-     - Re-provision a fresh ephemeral VM: generate a unique name (e.g. `rh-lab-${sessionId.slice(0, 8)}-${Date.now()}`), invoke `driver.createContainer(...)` with the session's saved profile configuration, and set database status to `'provisioning'`.
-     - Update the `lab_sessions` record with the new `instance_name`, clear `stopped_at`, set `started_at = NOW()`, and save.
-   - If the instance remains allocated in GCE in a terminated state, invoke `driver.startContainer(...)`.
-2. **Error Safety:**
-   - Wrap restart logic in a `try/catch`. Return a structured JSON response `{ error: err.message }` with HTTP 400/500 rather than crashing.
+JavaScript
+const iframeUrl = `/api/lab/sessions/${session.id}/proxy/lab`;
+Wire both the embedded <iframe> and "Open Tab ↗" to this exact iframeUrl.
 
----
+Part 2: Fix "Failed to check session status" (Premature Failure Modal)
+Root Cause:
+While Google Compute Engine provisions the VM (which takes 20–45s), GCE's API or the port 8888 probe returns transient 404s, 503s, or socket timeouts. labController.js allowed this to throw an unhandled 500 error, and LabSessionView.jsx aborted immediately on the first failed poll[cite: 12, 13].
 
-### Part 3: Fix Document Viewer & Opening (`.ipynb` and `.md` Files)
+Implementation Steps:
+Backend Status Safety in services/lab/src/controllers/labController.js:
 
-#### Root Cause:
-Exported notebooks and markdown reports appear as cards in the **Documents** tab, but clicking the external link `↗` or opening the document fails, returns a 404, or has no viewer handler attached[cite: 10].
+In getSessionStatus(req, res):
+Wrap the call to driver.status() in a try/catch and Promise.race with a 2500ms timeout:
 
-#### Implementation Steps:
-1. **Document Content & Stream Route in `services/document/`:**
-   - Ensure an endpoint exists to retrieve raw document content or download files:
-     `GET /api/documents/:id/download` and `GET /api/documents/:id/content`.
-   - If stored in Supabase Storage or local storage, fetch and stream the buffer with correct headers (`Content-Type: application/x-ipynb+json` or `text/markdown`).
-   - If file contents are stored as text/JSON in the database, return `{ document, content: doc.content }`.
-2. **Frontend Document Viewer in `frontend/src/components/documents/` (or `DocumentsTab.jsx`):**
-   - Wire the external link `↗` and card click handlers[cite: 10]:
-     - If the file is `.ipynb`: Open a modal with a lightweight notebook viewer (e.g., render cells, inputs, and outputs) or trigger a direct download with a toast notification.
-     - If the file is `.md` or `.txt`: Render the markdown/plain text preview inside a modal.
-     - Ensure the download button `↓` fetches the file cleanly with its original filename (e.g. `${doc.title}.ipynb`)[cite: 10].
+JavaScript
+try {
+  const statusData = await Promise.race([
+    driver.status(session.gce_instance_name, session.gce_zone),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Probe timeout')), 2500))
+  ]);
+  return res.json({
+    status: statusData.status || 'provisioning',
+    ready: Boolean(statusData.ready),
+    public_ip: statusData.ip || session.public_ip || null
+  });
+} catch (err) {
+  // Never return 500 while provisioning; fallback cleanly to DB state
+  return res.json({
+    status: session.status || 'provisioning',
+    ready: false,
+    public_ip: session.public_ip || null
+  });
+}
+Frontend Polling Resilience in frontend/src/components/lab/LabSessionView.jsx:
 
----
+Allow up to 40 polling attempts (every 3 seconds = 120 seconds total).
 
-### Part 4: Fix Experiment File & Dataset Attachment Uploads
+If a poll returns an HTTP error or times out, do NOT call setLaunchFailed(true). Log a warning, maintain the progress bar, and show status text: "Waiting for cloud container runtime to initialize...".
 
-#### Root Cause:
-Inside the **ExpTest** modal under the **Files** tab, dragging/dropping or browsing files fails to upload or attach artifacts to the experiment[cite: 9].
+Only trigger Session Launch Failed if the backend explicitly responds with { status: 'failed' } or all 40 retries are exhausted.
 
-#### Implementation Steps:
-1. **Gateway Passthrough in `services/gateway/src/app.js`:**
-   - Ensure requests to `/api/experiments/:id/files`, `/api/experiments/:id/attachments`, or `/api/projects/:pid/experiments/:id/files` bypass `express.json()` body parsing so `multipart/form-data` streams cleanly to `rh-experiment`.
-2. **Experiment File Upload Controller in `services/experiment/`:**
-   - Add/verify `multer` middleware on the experiment file upload route.
-   - Store the uploaded file in the project storage bucket (`experiments/<experiment_id>/<filename>`) or fallback to database/local storage.
-   - Create a record in `experiment_files` (or `experiment_attachments`) linking `experiment_id`, `file_name`, `file_size`, `mime_type`, and `storage_path`.
-   - Return HTTP 201 with the created file metadata so the UI immediately updates the **Files (0)** counter and list[cite: 9].
-3. **Frontend Upload Handler in `frontend/src/components/experiments/`:**
-   - In the experiment details modal, ensure the dropzone triggers `POST /api/experiments/:id/files` with `FormData`.
-   - Update file attachment list state upon successful upload without requiring a page refresh.
+Part 3: Fix Dataset Version Upload Failing at 35% (Failed to upload version)
+Root Cause:
+At 35% progress, the frontend finishes creating the version metadata row and starts transmitting the binary dataset file. The upload fails because:
 
----
+services/gateway/src/app.js runs express.json() on the request, which consumes and truncates the incoming multipart/form-data stream before it reaches the dataset microservice.
 
-### Part 5: Fix Publications Tab & Workflow
+OR multer is missing from the dataset versions route in services/dataset/.
 
-#### Root Cause:
-Clicking the **Publications** tab fails to load existing publications or creates an unhandled error when creating or linking papers.
+Implementation Steps:
+Bypass JSON Body-Parser for Multipart in services/gateway/src/app.js:
+Ensure express.json() never intercepts file uploads:
 
-#### Implementation Steps:
-1. **Gateway Route in `services/gateway/src/app.js`:**
-   - Verify that routes starting with `/api/publications` and `/api/projects/:pid/publications` proxy to the designated service (`rh-project`, `rh-document`, or `rh-publication`).
-2. **Service CRUD Handlers:**
-   - Ensure the database schema has the `publications` table (columns: `id`, `project_id`, `title`, `authors`, `venue_journal`, `doi`, `status`, `publication_date`, `created_at`).
-   - Implement `GET /api/projects/:pid/publications` and `POST /api/projects/:pid/publications`.
-3. **Frontend Integration:**
-   - Ensure the **Publications** tab renders the publication list and provides a functional "Add Publication" dialog (title, authors, journal/conference, DOI, and status).
+JavaScript
+// services/gateway/src/app.js
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  const isUpload = contentType.includes('multipart/form-data') ||
+                   req.path.includes('/versions') ||
+                   req.path.includes('/datasets') ||
+                   req.path.includes('/files') ||
+                   req.path.includes('/upload') ||
+                   req.path.includes('/documents');
 
----
+  if (isUpload) {
+    return next(); // Pass raw stream through to microservice
+  }
+  express.json({ limit: '10mb' })(req, res, next);
+});
+Handle File Upload in services/dataset/src/routes/datasetRoutes.js & controllers/datasetController.js:
 
-### Part 6: Fix Project Activity Timeline
+Attach multer to the version upload route:
 
-#### Root Cause:
-The **Timeline** tab shows `"PROJECT ACTIVITY TIMELINE (0) - No timeline events yet"` because services do not emit activity events, or the frontend queries a mismatched endpoint[cite: 11].
+JavaScript
+const multer = require('multer');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
 
-#### Implementation Steps:
-1. **Activity Recording Middleware / Utility in Backend Services:**
-   - Ensure that whenever:
-     - An experiment is created or status is changed[cite: 9],
-     - A document/notebook is uploaded or exported[cite: 10],
-     - A lab compute session is started or stopped[cite: 7],
-   - An event record is inserted into `activity_timeline` / `audit_logs` (columns: `id`, `project_id`, `user_id`, `entity_type`, `action`, `title`, `metadata`, `created_at`).
-2. **Timeline Endpoint & Gateway Routing:**
-   - Ensure `GET /api/projects/:pid/timeline` (or `activity`) returns events sorted by `created_at DESC`.
-   - Ensure Gateway routes `/api/projects/:pid/timeline` correctly to the service managing activity logs.
-3. **Frontend Timeline Tab in `frontend/src/components/projects/` (or `TimelineTab.jsx`):**
-   - Align the fetch URL with the backend route (`/api/projects/:projectId/timeline`).
-   - Provide a functional **Refresh Feed** button that re-fetches activity events[cite: 11].
-   - Ensure filters (**All Activities**, **Experiments**, **Datasets**, **Documents**, **Publications**, **Members**) correctly filter events by `entity_type`[cite: 11].
+router.post('/:id/versions', upload.single('file'), datasetController.createVersion);
+In createVersion:
 
----
+Extract req.file (the uploaded binary) and req.body (change notes, version metadata).
 
-### Part 7: In-App Notification Fallbacks (Brave/Shields Safe)
+Save the file using shared/src/storage.js or write to disk/cloud storage.
 
-#### Implementation Steps:
-In `frontend/src/` (inside your real-time chat/notification listener):
-1. **Permission Request:**
-   - Trigger `Notification.requestPermission()` on user login or discussion open.
-2. **Desktop Notification Handling:**
-   - If granted and `document.hidden` is true, trigger a native `Notification`.
-3. **Shield-Proof In-App Fallbacks:**
-   - **Flashing Title:** When `document.hidden` is true, toggle `document.title` every 1 second between `ResearchHub OS` and `🔔 (1) New Message!` until the window regains focus (`window.onfocus` or `visibilitychange`).
-   - **Visual Header Badge:** Increment the unread count badge in the global navigation bar (`nav.bell`).
-   - **Audio Chime:** Play a subtle chime (`new Audio('/notification.mp3').play().catch(() => {})`).
+Insert a record into dataset_versions (dataset_id, version_number, storage_path, file_size, change_note, created_at).
 
----
+Emit an activity event: emitActivityEvent({ projectId, entityType: 'dataset', action: 'version_uploaded', ... }).
 
-### Part 8: Verification & Test Execution
+Respond with HTTP 201 { success: true, version: newVersion }.
 
-Run all test suites and verify frontend build before completing:
-```powershell
-npm test --workspace=@rh/service-lab
-npm test --workspace=@rh/service-gateway
-npm test --workspace=@rh/service-document
-npm test --workspace=@rh/service-experiment
-npm run build --workspace=frontend
+Frontend Dataset Modal (DatasetUploadVersionModal.jsx / DatasetsTab.jsx):
+
+Ensure the submission uses FormData with key 'file':
+
+JavaScript
+const formData = new FormData();
+formData.append('file', selectedFile);
+formData.append('change_note', changeNote);
+On HTTP 201, update progress to 100%, trigger a toast "Version uploaded successfully", and refresh the versions list[cite: 14].
+
+Part 4: Fix Document Opening & Viewer (.ipynb & .md Files)
+Implementation Steps:
+Document Content Endpoint in services/document/src/:
+
+Ensure GET /api/documents/:id/content exists.
+
+Fetch the file via storage.readFile(bucket, key) or database column.
+
+Stream or return JSON { document, content: rawContentString }.
+
+Frontend Viewer Modal in frontend/src/components/documents/DocumentsTab.jsx:
+
+When the user clicks a document card or the external link ↗:
+
+If .ipynb: Fetch /api/documents/${doc.id}/content, parse the JSON notebook cells, and render inputs and outputs in a modal viewer.
+
+If .md or .txt: Render markdown content in a formatted reading pane.
+
+Ensure the direct download button ↓ downloads with the correct filename (${doc.title}.ipynb or ${doc.title}.md).
+
+Part 5: Fix Experiment Dropzone, Publications Tab & Activity Timeline
+Experiment File Dropzone:
+
+In services/experiment/src/routes/experimentRoutes.js, ensure multer.single('file') is mounted on POST /:id/files.
+
+Update ExperimentsTab.jsx so dragging and dropping files uploads via FormData and updates the file count immediately.
+
+Publications Tab:
+
+In services/publication/src/controllers/publicationController.js, support column aliases (venue / venue_journal, published_on / publication_date) to align with existing schemas without database migration conflicts.
+
+Activity Timeline:
+
+In shared/src/events.js, ensure emitActivityEvent writes directly to the project_activities / activity_timeline table.
+
+In frontend/src/components/timeline/TimelineTab.jsx, verify that fetchTimeline populates the timeline feed and filtering by pills works as expected.
+
+Part 6: In-App Notification Fallbacks (Brave Shields Safe)
+In frontend/src/hooks/useMessageNotifications.js:
+
+When a chat or project message arrives while document.hidden is true:
+
+Attempt native desktop notification (Notification.requestPermission()).
+
+If blocked or denied, alternate document.title between ResearchHub OS and 🔔 (1) New Message! every 1 second until the window regains focus.
+
+Play an audio ping (new Audio('/notification.mp3').play().catch(() => {})).
+
+Increment the unread notification bell badge in the global navigation bar.

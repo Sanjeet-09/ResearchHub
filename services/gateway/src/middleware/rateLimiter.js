@@ -3,10 +3,14 @@ const rateLimit = require('express-rate-limit');
 // General rate limiter across all gateway requests
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 300 requests per window
+  max: 700, // Limit each IP to 300 requests per window
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => process.env.NODE_ENV === 'test',
+  skip: (req) => {
+    if (process.env.NODE_ENV === 'test') return true;
+    const url = req.originalUrl || req.url || '';
+    return url.includes('/proxy');
+  },
   message: {
     error: {
       code: 'RATE_LIMIT_EXCEEDED',

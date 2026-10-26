@@ -220,6 +220,9 @@ export const ExperimentsTab = ({ projectId, isMember, isLead }) => {
               : exp
           )
         );
+        setSelectedExp((prev) =>
+          prev ? { ...prev, file_count: (parseInt(prev.file_count || 0, 10) + 1).toString() } : prev
+        );
       }
       setUploadProgress(100);
     } catch (err) {
@@ -244,6 +247,16 @@ export const ExperimentsTab = ({ projectId, isMember, isLead }) => {
     try {
       await experimentApi.deleteFile(projectId, selectedExp.id, fileId);
       setDetailFiles((prev) => prev.filter((f) => f.id !== fileId));
+      setExperiments((prev) =>
+        prev.map((exp) =>
+          exp.id === selectedExp.id
+            ? { ...exp, file_count: Math.max(0, parseInt(exp.file_count || 0, 10) - 1).toString() }
+            : exp
+        )
+      );
+      setSelectedExp((prev) =>
+        prev ? { ...prev, file_count: Math.max(0, parseInt(prev.file_count || 0, 10) - 1).toString() } : prev
+      );
     } catch (err) {
       alert(err.response?.data?.error?.message || 'Failed to delete file');
     }
@@ -260,12 +273,15 @@ export const ExperimentsTab = ({ projectId, isMember, isLead }) => {
     }
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files);
+      for (const file of files) {
+        await handleFileUpload(file);
+      }
     }
   };
 

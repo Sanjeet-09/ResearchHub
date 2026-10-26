@@ -100,7 +100,7 @@ describe('API Gateway', () => {
           'Content-Type': 'text/html',
           'X-Frame-Options': 'DENY',
         });
-        res.end('<html><head><script src="/static/lab/main.js"></script></head><body>JupyterLab Ready</body></html>');
+        res.end('<html><head><script src="/api/lab/sessions/session-uuid-123/proxy/static/lab/main.js"></script></head><body>JupyterLab Ready</body></html>');
       });
       mockJupyterServer.listen(9871, () => {
         process.env.LAB_TARGET_OVERRIDE = 'http://127.0.0.1:9871';
@@ -134,6 +134,28 @@ describe('API Gateway', () => {
 
       expect(res.status).toBe(200);
       expect(receivedUrl).toBe('/api/lab/sessions/session-uuid-123/proxy/api/kernels');
+    });
+
+    it('does not concatenate baseUrl twice on static asset requests', async () => {
+      const res = await request(app)
+        .get('/api/lab/sessions/session-uuid-123/proxy/static/lab/main.js');
+
+      expect(res.status).toBe(200);
+      // Crucial: Ensure NO double prefix (/api/lab/sessions/<id>/proxy/api/lab/sessions/<id>/proxy/...)
+      expect(receivedUrl).toBe('/api/lab/sessions/session-uuid-123/proxy/static/lab/main.js');
+      expect(receivedUrl).not.toContain('/api/lab/sessions/session-uuid-123/proxy/api/lab/sessions/session-uuid-123/proxy');
+    });
+
+    it('bypasses rate limiters and auth gatekeepers on proxy routes', async () => {
+      const promises = Array.from({ length: 10 }).map(() =>
+        request(app).get('/api/lab/sessions/session-uuid-123/proxy/api/kernels')
+      );
+      const responses = await Promise.all(promises);
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+        expect(res.status).not.toBe(429);
+        expect(res.status).not.toBe(401);
+      }
     });
   });
 });

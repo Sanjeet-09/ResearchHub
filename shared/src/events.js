@@ -17,19 +17,32 @@ function emitActivityEvent({ projectId, actorId, action, entityType, entityId, s
   try {
     const { pool } = require('./db');
     if (pool && typeof pool.query === 'function') {
+      const values = [
+        projectId || null,
+        actorId || null,
+        action,
+        entityType || null,
+        entityId || null,
+        summary || null,
+        JSON.stringify(metadata || {}),
+      ];
       pool.query(
         `INSERT INTO activity_events (project_id, actor_id, action, entity_type, entity_id, summary, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          projectId || null,
-          actorId || null,
-          action,
-          entityType || null,
-          entityId || null,
-          summary || null,
-          JSON.stringify(metadata || {}),
-        ]
-      ).catch(() => {});
+        values
+      ).catch(() => {
+        pool.query(
+          `INSERT INTO project_activities (project_id, actor_id, action, entity_type, entity_id, summary, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          values
+        ).catch(() => {
+          pool.query(
+            `INSERT INTO activity_timeline (project_id, actor_id, action, entity_type, entity_id, summary, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            values
+          ).catch(() => {});
+        });
+      });
     }
   } catch (_) {}
 
