@@ -29,9 +29,9 @@ const upload = multer({
 const multipartMiddleware = (req, res, next) => {
   const contentType = req.headers['content-type'] || '';
   if (contentType.toLowerCase().includes('multipart/form-data')) {
-    return upload.any()(req, res, (err) => {
+    return upload.single('file')(req, res, (err) => {
       if (err) return next(err);
-      if (req.files && req.files.length > 0 && !req.file) {
+      if (!req.file && req.files && req.files.length > 0) {
         req.file = req.files[0];
       }
       next();

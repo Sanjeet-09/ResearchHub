@@ -229,11 +229,26 @@ export const LabSessionView = ({
       setActionLoading(true);
       setExportMessage(null);
       const res = await labApi.exportNotebooks(session.id);
-      setExportMessage(res.message || 'Notebooks exported to Documents tab successfully');
+      if (res?.exportSuccess === false) {
+        toast.error(res.message || 'Notebook export was unavailable');
+        setErrorMessage(res.message);
+      } else {
+        const successMsg = res?.message || 'Notebook exported to Documents tab successfully!';
+        toast.success(successMsg);
+        setExportMessage(successMsg);
+        try {
+          window.dispatchEvent(
+            new CustomEvent('researchhub:documents-updated', {
+              detail: { projectId: session.project_id },
+            })
+          );
+        } catch (_) {}
+      }
       setTimeout(() => setExportMessage(null), 5000);
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Export failed';
       setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setActionLoading(false);
     }

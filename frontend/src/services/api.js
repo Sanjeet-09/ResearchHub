@@ -29,6 +29,9 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -217,7 +220,6 @@ export const experimentApi = {
       : `/experiments/${experimentId}/files`;
 
     const res = await api.post(endpoint, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000, // 2 minutes for uploads
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
@@ -284,16 +286,14 @@ export const datasetApi = {
   },
 
   uploadFileBinary: async (uploadUrl, file, onProgress) => {
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rh_token') : null;
+    // GCS pre-signed upload URLs require PUT, not POST.
+    // Using POST causes an immediate socket rejection (Network Error).
     const headers = {
       'Content-Type': file.type || 'application/octet-stream',
     };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    const res = await axios.post(uploadUrl, file, {
+    const res = await axios.put(uploadUrl, file, {
       headers,
-      timeout: 120000,
+      timeout: 0, // no timeout for binary file uploads
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -310,8 +310,7 @@ export const datasetApi = {
       : `/datasets/${datasetId}/versions`;
 
     const res = await api.post(endpoint, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 minutes for uploads
+      timeout: 0, // disable timeout for multipart file uploads
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -324,7 +323,6 @@ export const datasetApi = {
 
   uploadDatasetVersion: async (datasetId, formData, onProgress) => {
     const res = await api.post(`/datasets/${datasetId}/versions`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000, // 2 minutes for uploads
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {

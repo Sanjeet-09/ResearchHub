@@ -130,6 +130,38 @@ const createDataset = async (req, res, next) => {
     );
 
     const dataset = dbRes.rows[0];
+
+    // If file was attached during creation, create version 1 automatically
+    const file = req.file || (req.files && req.files[0]);
+    if (file && file.buffer) {
+      try {
+        const originalName = file.originalname || file.name || `${dataset.name}.csv`;
+        const sanitized = pathSanitize(originalName);
+        const sizeBytes = file.buffer.length || file.size || 0;
+        const key = `datasets/${dataset.id}/v1/${sanitized}`;
+        const storage = getStorageAdapter();
+        const uploadResult = await storage.uploadFile(key, file.buffer, file.mimetype || 'application/octet-stream');
+        const gcsPath = uploadResult?.path || (typeof uploadResult === 'string' ? uploadResult : String(uploadResult));
+        const metadata = {
+          originalFileName: originalName,
+          fileName: originalName,
+          mimeType: file.mimetype || 'application/octet-stream',
+          sizeBytes,
+        };
+        const vRes = await query(
+          `INSERT INTO dataset_versions
+             (dataset_id, version_no, gcs_path, size_bytes, metadata, change_note, created_by)
+           VALUES ($1, 1, $2, $3, $4, 'Initial version uploaded', $5)
+           RETURNING *`,
+          [dataset.id, gcsPath, sizeBytes, JSON.stringify(metadata), req.user.id]
+        );
+        await query('UPDATE datasets SET current_version_id = $1 WHERE id = $2', [vRes.rows[0].id, dataset.id]);
+        dataset.current_version_id = vRes.rows[0].id;
+      } catch (uploadErr) {
+        logger.warn({ err: uploadErr.message, datasetId: dataset.id }, 'Initial dataset version file upload warning');
+      }
+    }
+
     logger.info({ datasetId: dataset.id, projectId: pid }, 'Dataset created');
 
     emitActivityEvent({
@@ -143,6 +175,12 @@ const createDataset = async (req, res, next) => {
 
     res.status(201).json({ dataset });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err.message } });
+    }
+    if (err.name === 'NotFoundError') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: err.message } });
+    }
     next(err);
   }
 };
@@ -292,10 +330,10 @@ const getVersionUploadUrl = async (req, res, next) => {
 
     const { fileName, mimeType } = parsed.data;
     const sanitizedFileName = pathSanitize(fileName);
-    const key = `datasets/${pid}/${id}/v${nextVersion}/${sanitizedFileName}`;
+    const key = `datasets/${id}/v${nextVersion}/${sanitizedFileName}`;
 
     const storage = getStorageAdapter();
-    const signedData = await storage.getSignedUploadUrl('researchhub-storage', key, mimeType);
+    const signedData = await storage.getSignedUploadUrl(key, mimeType);
 
     res.json({
       uploadUrl: signedData.uploadUrl,
@@ -304,6 +342,12 @@ const getVersionUploadUrl = async (req, res, next) => {
       nextVersion,
     });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err.message } });
+    }
+    if (err.name === 'NotFoundError') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: err.message } });
+    }
     next(err);
   }
 };
@@ -359,14 +403,28 @@ const createVersion = async (req, res, next) => {
 
     if (file) {
       const originalName = file.originalname || file.name || 'dataset.bin';
-      sizeBytes = file.size !== undefined ? file.size : (file.buffer ? file.buffer.length : 0);
+      sizeBytes = (file.buffer && file.buffer.length) ? file.buffer.length : (file.size !== undefined ? file.size : 0);
       const sanitized = pathSanitize(originalName);
-      const key = `datasets/${projectId}/${id}/v${newVersionNo}/${sanitized}`;
+      // Key format: datasets/${datasetId}/v${versionNo}/${fileName}
+      const key = `datasets/${id}/v${newVersionNo}/${sanitized}`;
       const storage = getStorageAdapter();
-      gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, file.mimetype || 'application/octet-stream');
+      try {
+        const uploadResult = await storage.uploadFile(key, file.buffer, file.mimetype || 'application/octet-stream');
+        gcsPath = uploadResult?.path || (typeof uploadResult === 'string' ? uploadResult : String(uploadResult));
+      } catch (uploadErr) {
+        logger.error({ err: uploadErr.message, datasetId: id }, 'Failed to upload dataset file to storage');
+        return res.status(500).json({
+          error: {
+            code: 'STORAGE_UPLOAD_FAILED',
+            message: `Failed to upload dataset to storage: ${uploadErr.message}`,
+          },
+        });
+      }
       metadata = {
         originalFileName: originalName,
+        fileName: originalName,
         mimeType: file.mimetype || 'application/octet-stream',
+        sizeBytes,
       };
       if (req.body?.checksumSha256) {
         checksumSha256 = req.body.checksumSha256;
@@ -437,7 +495,14 @@ const createVersion = async (req, res, next) => {
 
     res.status(201).json({ success: true, version: newVersion });
   } catch (err) {
-    next(err);
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err.message } });
+    }
+    if (err.name === 'NotFoundError') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: err.message } });
+    }
+    logger.error({ err: err.message, stack: err.stack }, 'Error in createVersion');
+    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
   }
 };
 

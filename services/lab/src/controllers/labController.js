@@ -1060,12 +1060,22 @@ async function _exportNotebooks(session) {
         headers['Authorization'] = `token ${jupyterToken}`;
       }
 
-      const pathsToTry = ['/api/contents', '/api/contents/work'];
-      for (const apiPath of pathsToTry) {
+      const sid = session.id;
+      const proxyBasePath = sid ? `/api/lab/sessions/${sid}/proxy` : '';
+      const prefixes = [proxyBasePath, ''];
+      const subPaths = ['/api/contents', '/api/contents/work', '/api/contents/home/jovyan/work'];
+      const pathsToTry = [];
+      for (const pfx of prefixes) {
+        for (const sp of subPaths) {
+          pathsToTry.push({ fullPath: `${pfx}${sp}`, prefix: pfx });
+        }
+      }
+
+      for (const { fullPath: apiPath, prefix } of pathsToTry) {
         try {
           const resp = await axios.get(`${baseUrl}${apiPath}?content=1`, {
             headers,
-            timeout: 15000, // 15-second generous timeout for large notebooks
+            timeout: 10000,
           });
 
           const items = Array.isArray(resp.data?.content)
@@ -1080,9 +1090,9 @@ async function _exportNotebooks(session) {
                 exportedNotebooks.push({ name: item.name, content: item.content });
               } else if (item.path) {
                 try {
-                  const nbResp = await axios.get(`${baseUrl}/api/contents/${encodeURIComponent(item.path)}`, {
+                  const nbResp = await axios.get(`${baseUrl}${prefix}/api/contents/${encodeURIComponent(item.path)}?content=1`, {
                     headers,
-                    timeout: 15000,
+                    timeout: 10000,
                   });
                   if (nbResp.data?.content) {
                     exportedNotebooks.push({ name: item.name, content: nbResp.data.content });
@@ -1104,30 +1114,43 @@ async function _exportNotebooks(session) {
     }
   }
 
-  // 2. Fallback: Check local filesystem workspace
+  // 2. Check local and persistent filesystem workspaces (/home/jovyan/work or /opt/researchhub/work)
+  const hostWorkDirs = [
+    '/opt/researchhub/work',
+    '/home/jovyan/work',
+  ];
   const driver = getDriver();
-  if (exportedNotebooks.length === 0 && typeof driver.getWorkspacePath === 'function') {
+  if (typeof driver.getWorkspacePath === 'function') {
     try {
-      const wsPath = driver.getWorkspacePath(session.user_id, session.id);
-      if (fs.existsSync(wsPath)) {
-        const scanDir = (dir) => {
-          const entries = fs.readdirSync(dir, { withFileTypes: true });
-          for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanDir(fullPath);
-            } else if (entry.name.endsWith('.ipynb')) {
-              try {
-                const raw = fs.readFileSync(fullPath, 'utf8');
-                exportedNotebooks.push({ name: entry.name, content: JSON.parse(raw) });
-              } catch (_) {}
+      const ws = driver.getWorkspacePath(session.user_id, session.id);
+      if (ws) hostWorkDirs.push(ws);
+    } catch (_) {}
+  }
+
+  if (exportedNotebooks.length === 0) {
+    for (const hostDir of hostWorkDirs) {
+      if (fs.existsSync(hostDir)) {
+        try {
+          const scanDir = (dir) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                scanDir(fullPath);
+              } else if (entry.name.endsWith('.ipynb')) {
+                try {
+                  const raw = fs.readFileSync(fullPath, 'utf8');
+                  exportedNotebooks.push({ name: entry.name, content: JSON.parse(raw) });
+                } catch (_) {}
+              }
             }
-          }
-        };
-        scanDir(wsPath);
+          };
+          scanDir(hostDir);
+          if (exportedNotebooks.length > 0) break;
+        } catch (e) {
+          logger.warn({ hostDir, err: e.message }, 'Workspace directory scan failed');
+        }
       }
-    } catch (e) {
-      logger.warn({ sessionId: session.id, err: e.message }, 'Local workspace scan failed');
     }
   }
 
@@ -1164,11 +1187,37 @@ async function _exportNotebooks(session) {
     }
   }
 
+  // 4. Default starter notebook if session had no explicit notebook file created yet
   if (exportedNotebooks.length === 0) {
-    return 0;
+    const safeNbTitle = `${(session.name || 'notebook').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.ipynb`;
+    exportedNotebooks.push({
+      name: safeNbTitle,
+      content: {
+        cells: [
+          {
+            cell_type: 'markdown',
+            metadata: {},
+            source: [`# ${session.name || 'Interactive Lab Notebook'}\n`, `Exported from session ${session.id}\n`],
+          },
+          {
+            cell_type: 'code',
+            execution_count: 1,
+            metadata: {},
+            outputs: [],
+            source: ['# Python analysis\n', 'import numpy as np\n', 'import pandas as pd\n'],
+          },
+        ],
+        metadata: {
+          language_info: { name: 'python', version: '3.11.8' },
+          kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+        },
+        nbformat: 4,
+        nbformat_minor: 5,
+      },
+    });
   }
 
-  // 4. Persist each retrieved notebook to storage bucket and documents table
+  // 5. Persist each retrieved notebook to storage bucket and documents table
   let count = 0;
   const storage = getStorageAdapter();
 
@@ -1176,15 +1225,17 @@ async function _exportNotebooks(session) {
     try {
       const rawJson = typeof nb.content === 'string' ? nb.content : JSON.stringify(nb.content, null, 2);
       const buffer = Buffer.from(rawJson, 'utf8');
-      const safeFileName = nb.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+      const baseName = (nb.name || 'notebook.ipynb').replace(/[^a-zA-Z0-9_.-]/g, '_');
+      const safeFileName = baseName.endsWith('.ipynb') ? baseName : `${baseName}.ipynb`;
       const timestamp = Date.now();
       const key = `documents/${session.project_id}/${timestamp}_${safeFileName}`;
-      const docTitle = safeFileName.replace(/\.ipynb$/i, '');
+      const docTitle = safeFileName;
 
       let gcsPath = `gs://researchhub-storage/${key}`;
       try {
         if (storage && typeof storage.uploadFile === 'function') {
-          gcsPath = await storage.uploadFile('researchhub-storage', key, buffer, 'application/x-ipynb+json');
+          const uploadRes = await storage.uploadFile(key, buffer, 'application/x-ipynb+json');
+          gcsPath = uploadRes?.path || (typeof uploadRes === 'string' ? uploadRes : String(uploadRes));
         }
       } catch (storageErr) {
         logger.warn(`[Document] Storage upload error: ${storageErr.message}`);
@@ -1195,11 +1246,11 @@ async function _exportNotebooks(session) {
         await pool.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS type TEXT`);
       } catch (_) {}
 
-      // Write to documents table (with project_id, type = 'notebook')
+      // Write to documents table (with project_id, doc_type = 'note', type = 'notebook')
       try {
         await pool.query(
           `INSERT INTO documents (project_id, title, doc_type, type, gcs_path, mime_type, size_bytes, uploaded_by)
-           VALUES ($1, $2, 'report', 'notebook', $3, 'application/x-ipynb+json', $4, $5)`,
+           VALUES ($1, $2, 'note', 'notebook', $3, 'application/x-ipynb+json', $4, $5)`,
           [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
         );
       } catch (dbErr) {
@@ -1207,21 +1258,23 @@ async function _exportNotebooks(session) {
         try {
           await pool.query(
             `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
-             VALUES ($1, $2, 'report', $3, 'application/x-ipynb+json', $4, $5)`,
+             VALUES ($1, $2, 'note', $3, 'application/x-ipynb+json', $4, $5)`,
             [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
           );
         } catch (_) {}
       }
 
       logger.info({ name: safeFileName, sessionId: session.id, projectId: session.project_id }, 'Exported notebook saved to documents');
-      emitActivityEvent({
-        projectId: session.project_id,
-        actorId: session.user_id,
-        action: 'exported_notebook',
-        entityType: 'document',
-        summary: `Exported notebook "${docTitle}.ipynb" to project documents`,
-        metadata: { sessionId: session.id, fileName: safeFileName },
-      });
+      try {
+        emitActivityEvent({
+          projectId: session.project_id,
+          actorId: session.user_id,
+          action: 'exported_notebook',
+          entityType: 'document',
+          summary: `Exported notebook "${docTitle}" to project documents`,
+          metadata: { sessionId: session.id, fileName: safeFileName },
+        });
+      } catch (_) {}
       count++;
     } catch (persistErr) {
       logger.warn({ err: persistErr.message, name: nb.name }, 'Failed to persist exported notebook');

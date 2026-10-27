@@ -429,7 +429,8 @@ const uploadExperimentFile = async (req, res, next) => {
     try {
       const storage = getStorageAdapter();
       if (storage && typeof storage.uploadFile === 'function' && file.buffer) {
-        gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+        const uploadResult = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+        gcsPath = uploadResult?.path || (typeof uploadResult === 'string' ? uploadResult : String(uploadResult));
       }
     } catch (storageErr) {
       logger.warn({ err: storageErr.message }, 'Failed to upload experiment file to storage, using fallback');

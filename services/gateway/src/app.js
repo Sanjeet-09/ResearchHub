@@ -11,6 +11,9 @@ const { createServiceProxy, createLabProxy } = require('./middleware/proxy');
 
 const app = express();
 
+// Trust Cloud Run reverse proxy
+app.set('trust proxy', 1);
+
 // 1. Core security & tracing headers (frameguard disabled & CSP configured for embedded JupyterLab iframe)
 app.use(
   helmet({
@@ -96,8 +99,9 @@ app.use('/api', auditHookMiddleware);
 const fs = require('fs');
 app.post('/api/storage/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res, next) => {
   try {
-    const { bucket, key } = req.query;
-    if (!bucket || !key) return res.status(400).json({ error: { message: 'bucket and key required' } });
+    const bucket = req.query.bucket || process.env.GCS_BUCKET || process.env.STORAGE_BUCKET || 'researchhub-storage';
+    const key = req.query.key;
+    if (!key) return res.status(400).json({ error: { message: 'key required' } });
     const storage = getStorageAdapter();
     const gcsPath = await storage.uploadFile(bucket, key, req.body, req.headers['content-type']);
     res.json({ status: 'uploaded', gcsPath });
@@ -108,11 +112,15 @@ app.post('/api/storage/upload', express.raw({ type: '*/*', limit: '50mb' }), asy
 
 app.get('/api/storage/download', async (req, res, next) => {
   try {
-    const { bucket, key, download } = req.query;
-    if (!bucket || !key) return res.status(400).json({ error: { message: 'bucket and key required' } });
+    const bucket = req.query.bucket || process.env.GCS_BUCKET || process.env.STORAGE_BUCKET || 'researchhub-storage';
+    const key = req.query.key;
+    const download = req.query.download;
+    if (!key) return res.status(400).json({ error: { message: 'key required' } });
     const storage = getStorageAdapter();
-    const filePath = storage._getFilePath(bucket, key);
-    if (!fs.existsSync(filePath)) {
+    const filePath = typeof storage._getFilePath === 'function'
+      ? storage._getFilePath(bucket, key)
+      : (typeof storage._resolvePath === 'function' ? storage._resolvePath(key) : null);
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: { message: 'File not found on local storage' } });
     }
     const pathMod = require('path');

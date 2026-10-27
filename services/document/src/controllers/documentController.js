@@ -205,51 +205,64 @@ const uploadDocument = async (req, res, next) => {
     let gcsPath = null;
     let storageError = null;
 
-    // 1. Check Supabase Storage client call
-    try {
-      let supabaseClient = global.supabase;
-      if (!supabaseClient && process.env.SUPABASE_URL) {
-        try {
-          const { createClient } = require('@supabase/supabase-js');
-          supabaseClient = createClient(
-            process.env.SUPABASE_URL,
-            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
-          );
-        } catch (_) {}
-      }
+    const isGcs = Boolean(process.env.GCS_BUCKET || process.env.STORAGE_BUCKET || process.env.STORAGE_DRIVER === 'gcs');
+    const storage = getStorageAdapter();
 
-      if (supabaseClient?.storage) {
-        const { data, error } = await supabaseClient.storage
-          .from('documents')
-          .upload(key, file.buffer, {
-            contentType: mimeType,
-            upsert: true,
-          });
-
-        if (error) {
-          logger.warn(`[Document] Storage upload error: ${error.message}`);
-          storageError = error;
-        } else {
-          gcsPath = `supabase://documents/${key}`;
-        }
-      }
-    } catch (sbErr) {
-      logger.warn(`[Document] Storage upload error: ${sbErr.message}`);
-      storageError = sbErr;
-    }
-
-    // 2. StorageAdapter fallback (LocalDiskStorageAdapter / GCS)
-    if (!gcsPath && !storageError) {
+    if (isGcs) {
       try {
-        const storage = getStorageAdapter();
-        if (storage && typeof storage.uploadFile === 'function') {
-          gcsPath = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
-        } else {
-          gcsPath = `gs://researchhub-storage/${key}`;
+        const uploadResult = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+        gcsPath = uploadResult?.path || (typeof uploadResult === 'string' ? uploadResult : String(uploadResult));
+      } catch (err) {
+        logger.warn(`[Document] Storage upload error: ${err.message}`);
+        storageError = err;
+      }
+    } else {
+      // 1. Check Supabase Storage client call
+      try {
+        let supabaseClient = global.supabase;
+        if (!supabaseClient && process.env.SUPABASE_URL) {
+          try {
+            const { createClient } = require('@supabase/supabase-js');
+            supabaseClient = createClient(
+              process.env.SUPABASE_URL,
+              process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
+            );
+          } catch (_) {}
         }
-      } catch (adapterErr) {
-        logger.warn(`[Document] Storage upload error: ${adapterErr.message}`);
-        storageError = adapterErr;
+
+        if (supabaseClient?.storage) {
+          const { data, error } = await supabaseClient.storage
+            .from('documents')
+            .upload(key, file.buffer, {
+              contentType: mimeType,
+              upsert: true,
+            });
+
+          if (error) {
+            logger.warn(`[Document] Storage upload error: ${error.message}`);
+            storageError = error;
+          } else {
+            gcsPath = `supabase://documents/${key}`;
+          }
+        }
+      } catch (sbErr) {
+        logger.warn(`[Document] Storage upload error: ${sbErr.message}`);
+        storageError = sbErr;
+      }
+
+      // 2. StorageAdapter fallback (LocalDiskStorageAdapter)
+      if (!gcsPath && !storageError) {
+        try {
+          if (storage && typeof storage.uploadFile === 'function') {
+            const uploadResult = await storage.uploadFile('researchhub-storage', key, file.buffer, mimeType);
+            gcsPath = uploadResult?.path || (typeof uploadResult === 'string' ? uploadResult : String(uploadResult));
+          } else {
+            gcsPath = `gs://researchhub-storage/${key}`;
+          }
+        } catch (adapterErr) {
+          logger.warn(`[Document] Storage upload error: ${adapterErr.message}`);
+          storageError = adapterErr;
+        }
       }
     }
 

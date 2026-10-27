@@ -144,6 +144,12 @@ describe('GCE Compute Engine On-Demand Driver', () => {
           expect.objectContaining({ key: 'api-internal-url' }),
         ])
       );
+      expect(insertCall.instanceResource.serviceAccounts).toEqual([
+        {
+          email: 'default',
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        },
+      ]);
       expect(res.url).toBe('http://34.120.50.60:8888');
       expect(res.port).toBe(8888);
       expect(res.containerName).toMatch(/^rh-lab-/);

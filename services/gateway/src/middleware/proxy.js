@@ -75,8 +75,15 @@ const createServiceProxy = (targetUrlResolver, pathRewritePrefix = '') => {
       }
     });
 
-    // Handle body forwarding
-    if (req.body && Object.keys(req.body).length > 0) {
+    // Handle body forwarding.
+    // IMPORTANT: For multipart/form-data uploads the body-parsing middleware is
+    // intentionally bypassed at the gateway so the raw stream can be piped
+    // directly to the downstream service. Never try to JSON-serialize a
+    // multipart request body — that overwrites Content-Type and destroys the
+    // stream boundary, causing the downstream multer parser to fail and the
+    // browser to see a dropped socket ("Network Error").
+    const isMultipart = (req.headers['content-type'] || '').toLowerCase().includes('multipart/form-data');
+    if (!isMultipart && req.body && Object.keys(req.body).length > 0) {
       const bodyData = Buffer.isBuffer(req.body)
         ? req.body
         : typeof req.body === 'string'

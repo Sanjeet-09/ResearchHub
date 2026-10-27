@@ -15,6 +15,8 @@
     Explicit path to local secrets file (defaults to auto-detecting secrets.env / .env.secrets / secretes.txt / .env.production / .env)
 .PARAMETER AllowUnauthenticatedMicroservices
     Deploy microservices with --allow-unauthenticated for direct gateway proxy access (default: $true)
+.PARAMETER Bucket
+    GCS Bucket name for file uploads (default: research-hub-lab2-5-storage)
 #>
 
 [CmdletBinding()]
@@ -32,7 +34,10 @@ param(
     [string]$SecretsFile,
 
     [Parameter(Mandatory = $false)]
-    [bool]$AllowUnauthenticatedMicroservices = $true
+    [bool]$AllowUnauthenticatedMicroservices = $true,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Bucket = "research-hub-lab2-5-storage"
 )
 
 $ErrorActionPreference = "Continue"
@@ -442,6 +447,28 @@ Exec-Step "Granting Service Account User role to Cloud Run compute service accou
         --quiet | Out-Null
 }
 
+Exec-Step "Granting Storage Object Admin role to Cloud Run compute service account" {
+    gcloud projects add-iam-policy-binding $ProjectId `
+        --member="serviceAccount:$ComputeServiceAccount" `
+        --role="roles/storage.objectAdmin" `
+        --quiet | Out-Null
+}
+
+Exec-Step "Granting Service Account Token Creator role (required for v4 signed URLs)" {
+    gcloud projects add-iam-policy-binding $ProjectId `
+        --member="serviceAccount:$ComputeServiceAccount" `
+        --role="roles/iam.serviceAccountTokenCreator" `
+        --quiet | Out-Null
+}
+
+# Ensure Cloud Storage bucket exists for file uploads
+$bucketExists = gcloud storage buckets describe "gs://$Bucket" --project=$ProjectId 2>$null
+if (-not $bucketExists) {
+    Exec-Step "Creating Cloud Storage bucket: gs://$Bucket" {
+        gcloud storage buckets create "gs://$Bucket" --project=$ProjectId --location=$Region --quiet 2>$null
+    }
+}
+
 # Ensure Firewall rule for ephemeral lab workers (port 8888 & 80)
 $fwRule = gcloud compute firewall-rules describe allow-researchhub-lab --project=$ProjectId --format="value(name)" 2>$null
 if (-not $fwRule) {
@@ -517,12 +544,21 @@ foreach ($svc in $services) {
             --quiet
     }
 
-    # Sizing: 1Gi for lab (due to @google-cloud/compute gRPC overhead), 512Mi for project/gateway, 256Mi for lightweight services
+    # Sizing & Environment Configuration:
+    # rh-lab includes --memory=1Gi --timeout=120s
+    # rh-dataset, rh-document, and rh-experiment pass --set-env-vars="GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs"
     $mem = if ($svc -eq "lab") { "1Gi" } elseif ($svc -eq "project") { "512Mi" } else { "256Mi" }
     $timeout = if ($svc -eq "lab") { "120s" } else { "60s" }
     $svcEnvVars = "NODE_ENV=production"
+
     if ($svc -eq "lab") {
-        $svcEnvVars += ",LAB_DRIVER=gce,GCP_PROJECT_ID=$ProjectId,GCP_ZONE=$Region-a"
+        $svcEnvVars += ",LAB_DRIVER=gce,GCP_PROJECT_ID=$ProjectId,GCP_ZONE=$Region-a,GCS_BUCKET=$Bucket,STORAGE_BUCKET=$Bucket,STORAGE_DRIVER=gcs"
+    } elseif ($svc -in @("dataset", "document", "experiment")) {
+        $svcEnvVars = if ($Bucket -and $Bucket -ne "research-hub-lab2-5-storage") {
+            "GCS_BUCKET=$Bucket,STORAGE_BUCKET=$Bucket,STORAGE_DRIVER=gcs"
+        } else {
+            "GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs"
+        }
     }
 
     $deployArgs = @(
@@ -542,12 +578,142 @@ foreach ($svc in $services) {
         "--quiet"
     )
 
+    $extraArgs = @()
     if ($AllowUnauthenticatedMicroservices) {
         $deployArgs += "--allow-unauthenticated"
+        $extraArgs += "--allow-unauthenticated"
     }
 
-    Exec-Step "Deploying Cloud Run microservice: rh-$svc" {
-        & gcloud @deployArgs
+    # Ensure deployment commands for rh-dataset, rh-document, and rh-experiment pass --set-env-vars="GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs", and rh-lab includes --memory=1Gi --timeout=120s
+    if ($svc -eq "lab") {
+        Exec-Step "Deploying Cloud Run microservice: rh-lab" {
+            gcloud run deploy "rh-lab" `
+                --image=$imageTag `
+                --region=$Region `
+                --project=$ProjectId `
+                --platform=managed `
+                --min-instances=0 `
+                --max-instances=2 `
+                --memory=1Gi --timeout=120s `
+                --cpu=1 `
+                --concurrency=80 `
+                --set-secrets=$secretBindings `
+                --set-env-vars=$svcEnvVars `
+                @extraArgs `
+                --quiet
+        }
+    } elseif ($svc -eq "dataset") {
+        Exec-Step "Deploying Cloud Run microservice: rh-dataset" {
+            if ($Bucket -and $Bucket -ne "research-hub-lab2-5-storage") {
+                gcloud run deploy "rh-dataset" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=$Bucket,STORAGE_BUCKET=$Bucket,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            } else {
+                gcloud run deploy "rh-dataset" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            }
+        }
+    } elseif ($svc -eq "document") {
+        Exec-Step "Deploying Cloud Run microservice: rh-document" {
+            if ($Bucket -and $Bucket -ne "research-hub-lab2-5-storage") {
+                gcloud run deploy "rh-document" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=$Bucket,STORAGE_BUCKET=$Bucket,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            } else {
+                gcloud run deploy "rh-document" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            }
+        }
+    } elseif ($svc -eq "experiment") {
+        Exec-Step "Deploying Cloud Run microservice: rh-experiment" {
+            if ($Bucket -and $Bucket -ne "research-hub-lab2-5-storage") {
+                gcloud run deploy "rh-experiment" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=$Bucket,STORAGE_BUCKET=$Bucket,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            } else {
+                gcloud run deploy "rh-experiment" `
+                    --image=$imageTag `
+                    --region=$Region `
+                    --project=$ProjectId `
+                    --platform=managed `
+                    --min-instances=0 `
+                    --max-instances=2 `
+                    --memory=$mem `
+                    --cpu=1 `
+                    --concurrency=80 `
+                    --timeout=$timeout `
+                    --set-secrets=$secretBindings `
+                    --set-env-vars="GCS_BUCKET=research-hub-lab2-5-storage,STORAGE_BUCKET=research-hub-lab2-5-storage,STORAGE_DRIVER=gcs" `
+                    @extraArgs `
+                    --quiet
+            }
+        }
+    } else {
+        Exec-Step "Deploying Cloud Run microservice: rh-$svc" {
+            & gcloud @deployArgs
+        }
     }
 
     $svcUrl = (gcloud run services describe "rh-$svc" --region=$Region --project=$ProjectId --format="value(status.url)" 2>$null)
@@ -611,7 +777,7 @@ Exec-Step "Deploying Cloud Run API Gateway: rh-gateway" {
         --memory=512Mi `
         --cpu=1 `
         --concurrency=80 `
-        --timeout=60s `
+        --timeout=1800s `
         --set-secrets=$secretBindings `
         --set-env-vars=$gwEnvJoined `
         --allow-unauthenticated `

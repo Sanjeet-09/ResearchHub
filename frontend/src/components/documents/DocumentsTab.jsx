@@ -167,6 +167,16 @@ export const DocumentsTab = ({ projectId, isMember, isLead }) => {
     }
   }, [projectId, selectedType, searchQuery]);
 
+  useEffect(() => {
+    const handleDocUpdate = (e) => {
+      if (!e?.detail?.projectId || e.detail.projectId === projectId) {
+        fetchDocuments();
+      }
+    };
+    window.addEventListener('researchhub:documents-updated', handleDocUpdate);
+    return () => window.removeEventListener('researchhub:documents-updated', handleDocUpdate);
+  }, [projectId]);
+
 
 
   // File Drag & Drop Handlers (Multi-file support)
