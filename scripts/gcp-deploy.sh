@@ -507,8 +507,8 @@ LB_API_URL="${LB_URL}/api"
 # 8. Frontend Build & Firebase Hosting
 # ---------------------------------------------------------
 log "Step 8: Building Frontend & Deploying to Firebase..."
-echo "VITE_API_URL=/api" > "$ROOT_DIR/frontend/.env.production"
-ok "Injected dynamic relative API URL into frontend/.env.production (VITE_API_URL=/api)"
+printf "VITE_API_URL=/api\nVITE_GATEWAY_URL=%s\n" "$GATEWAY_URL" > "$ROOT_DIR/frontend/.env.production"
+ok "Injected dynamic relative API URL into frontend/.env.production (VITE_API_URL=/api, VITE_GATEWAY_URL=$GATEWAY_URL)"
 
 exec_step "Building frontend production bundle" \
   bash -c "cd '$ROOT_DIR' && npm run build:frontend"

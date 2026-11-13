@@ -102,7 +102,7 @@ const createServiceProxy = (targetUrlResolver, pathRewritePrefix = '') => {
   };
 };
 
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const { createProxyMiddleware, fixRequestBody } = require('http-proxy-middleware');
 
 const labTargetCache = new Map();
 
@@ -131,12 +131,13 @@ async function resolveLabTarget(sessionIdOrReq) {
   try {
     const { pool } = require('@rh/shared');
     if (pool) {
-      const { rows } = await pool.query('SELECT url, public_ip, state FROM lab_sessions WHERE id = $1', [sessionId]);
+      const { rows } = await pool.query(
+        'SELECT url, gce_ip, public_ip, status, state FROM lab_sessions WHERE id = $1',
+        [sessionId]
+      );
       if (rows.length > 0) {
-        let rawUrl = rows[0].url;
-        if (rows[0].public_ip) {
-          rawUrl = `http://${rows[0].public_ip}:8888`;
-        }
+        const ip = rows[0].gce_ip || rows[0].public_ip;
+        let rawUrl = ip ? `http://${ip}:8888` : rows[0].url;
         if (rawUrl) {
           try {
             const parsed = new URL(rawUrl);
@@ -154,10 +155,6 @@ async function resolveLabTarget(sessionIdOrReq) {
     logger.warn({ err: err.message, sessionId }, 'Gateway could not resolve lab session target from database');
   }
 
-  if (process.env.NODE_ENV !== 'production') {
-    return 'http://localhost:8888';
-  }
-
   return null;
 }
 
@@ -168,10 +165,11 @@ async function resolveLabTarget(sessionIdOrReq) {
  * Supports WebSockets (ws: true) for interactive Jupyter kernels.
  */
 function createLabProxy() {
-  return createProxyMiddleware({
+  const proxy = createProxyMiddleware({
     target: 'http://127.0.0.1:8888',
     router: async (req) => {
-      return await resolveLabTarget(req);
+      const target = await resolveLabTarget(req);
+      return target || undefined;
     },
     changeOrigin: true,
     ws: true,
@@ -179,6 +177,7 @@ function createLabProxy() {
     timeout: 30000,
     // Do NOT specify pathRewrite here; req.url is already the exact full path
     on: {
+      proxyReq: fixRequestBody,
       proxyRes: (proxyRes, req, res) => {
         delete proxyRes.headers['x-frame-options'];
         const csp =
@@ -195,28 +194,40 @@ function createLabProxy() {
       error: (err, req, res) => {
         console.error(`[LabProxy Error] Target failed: ${err.code} - ${err.message}`);
         if (res && !res.headersSent && typeof res.status === 'function') {
-          res.status(502).json({
-            error: {
-              code: "BAD_GATEWAY",
-              message: "Cannot reach JupyterLab container. Container may still be initializing."
-            }
+          res.status(503).json({
+            error: 'Lab session is still initializing or unreachable',
           });
         } else if (res && typeof res.writeHead === 'function' && !res.headersSent) {
-          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.writeHead(503, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              error: {
-                code: "BAD_GATEWAY",
-                message: "Cannot reach JupyterLab container. Container may still be initializing."
-              }
+              error: 'Lab session is still initializing or unreachable',
             })
           );
         } else if (res && typeof res.destroy === 'function') {
           res.destroy();
         }
-      }
-    }
+      },
+    },
   });
+
+  const middleware = async (req, res, next) => {
+    const target = await resolveLabTarget(req);
+    if (!target) {
+      if (res && !res.headersSent && typeof res.status === 'function') {
+        return res.status(503).json({ error: 'Lab session is still initializing or unreachable' });
+      } else if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Lab session is still initializing or unreachable' }));
+      }
+      return;
+    }
+    return proxy(req, res, next);
+  };
+
+  middleware.upgrade = proxy.upgrade ? proxy.upgrade.bind(proxy) : undefined;
+  middleware._httpProxy = proxy._httpProxy;
+  return middleware;
 }
 
-module.exports = { createServiceProxy, createLabProxy };
+module.exports = { createServiceProxy, createLabProxy, resolveLabTarget };

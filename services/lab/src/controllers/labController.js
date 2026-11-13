@@ -177,6 +177,32 @@ async function createSession(req, res, next) {
       });
     }
 
+    // Singleton active session per project: reconnect if one is already active
+    let existingSession;
+    try {
+      existingSession = await pool.query(
+        `SELECT * FROM lab_sessions 
+         WHERE project_id = $1 AND status IN ('PROVISIONING', 'STARTING', 'RUNNING') 
+         ORDER BY created_at DESC LIMIT 1`,
+        [projectId]
+      );
+    } catch (_) {
+      existingSession = await pool.query(
+        `SELECT * FROM lab_sessions 
+         WHERE project_id = $1 AND state IN ('provisioning', 'starting', 'running', 'PROVISIONING', 'STARTING', 'RUNNING') 
+         ORDER BY created_at DESC LIMIT 1`,
+        [projectId]
+      ).catch(() => ({ rows: [] }));
+    }
+
+    if (existingSession && existingSession.rows && existingSession.rows.length > 0) {
+      return res.status(200).json({
+        session: existingSession.rows[0],
+        reconnected: true,
+        message: 'Reconnected to existing active lab session.',
+      });
+    }
+
     // 1 active session per user
     const activeUserSession = await client.query(
       `SELECT id FROM lab_sessions
@@ -241,10 +267,15 @@ async function createSession(req, res, next) {
 
     const newSession = {
       id: sessionId,
+      project_id: projectId,
+      projectId: projectId,
+      user_id: userId,
       state: 'provisioning',
       status: 'provisioning',
       name: name.trim(),
       profileKey,
+      profile_key: profileKey,
+      profile_id: profile.id,
     };
 
     res.status(201).json({
@@ -1022,9 +1053,11 @@ async function exportSession(req, res, next) {
     try {
       const count = await _exportNotebooks(session);
       return res.json({
-        message: `Exported ${count} notebook(s) to project documents`,
+        message: count > 0
+          ? `Exported ${count} notebook(s) to project documents`
+          : 'No notebooks found to export. Open a .ipynb file in JupyterLab and try again.',
         count,
-        exportSuccess: true,
+        exportSuccess: count > 0,
       });
     } catch (exportErr) {
       logger.warn(`[Lab] Failed to extract notebook before VM deletion: ${exportErr.message}`);
@@ -1241,28 +1274,13 @@ async function _exportNotebooks(session) {
         logger.warn(`[Document] Storage upload error: ${storageErr.message}`);
       }
 
-      // Ensure 'type' column exists if possible
-      try {
-        await pool.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS type TEXT`);
-      } catch (_) {}
-
-      // Write to documents table (with project_id, doc_type = 'note', type = 'notebook')
-      try {
-        await pool.query(
-          `INSERT INTO documents (project_id, title, doc_type, type, gcs_path, mime_type, size_bytes, uploaded_by)
-           VALUES ($1, $2, 'note', 'notebook', $3, 'application/x-ipynb+json', $4, $5)`,
-          [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
-        );
-      } catch (dbErr) {
-        // Fallback without 'type' column if not supported
-        try {
-          await pool.query(
-            `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
-             VALUES ($1, $2, 'note', $3, 'application/x-ipynb+json', $4, $5)`,
-            [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
-          );
-        } catch (_) {}
-      }
+      // Write to documents table matching production schema
+      await pool.query(
+        `INSERT INTO documents (project_id, title, doc_type, gcs_path, mime_type, size_bytes, uploaded_by)
+         VALUES ($1, $2, 'notebook', $3, 'application/x-ipynb+json', $4, $5)
+         RETURNING *;`,
+        [session.project_id, docTitle, gcsPath, buffer.length, session.user_id]
+      );
 
       logger.info({ name: safeFileName, sessionId: session.id, projectId: session.project_id }, 'Exported notebook saved to documents');
       try {
@@ -1926,6 +1944,11 @@ async function getSessionStatus(req, res, next) {
 
     const payload = {
       id: session.id,
+      project_id: session.project_id,
+      projectId: session.project_id,
+      user_id: session.user_id,
+      profile_id: session.profile_id,
+      profile_key: session.profile_key,
       name: session.name,
       state: session.state,
       status: finalStatus,

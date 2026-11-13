@@ -1,5 +1,6 @@
 ﻿{
   "hosting": {
+    "site": "research-hub-lab2-7",
     "public": "frontend/dist",
     "ignore": [
       "firebase.json",

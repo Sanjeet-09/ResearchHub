@@ -12,13 +12,15 @@ const startServer = () => {
   });
 
   // Attach WebSocket upgrade handler for JupyterLab interactive kernels
-  if (app.jupyterProxy && typeof app.jupyterProxy.upgrade === 'function') {
-    server.on('upgrade', (req, socket, head) => {
-      if (req.url && req.url.includes('/proxy')) {
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url && req.url.includes('/proxy')) {
+      if (app.jupyterProxy?._httpProxy) {
+        app.jupyterProxy._httpProxy.ws(req, socket, head);
+      } else if (typeof app.jupyterProxy?.upgrade === 'function') {
         app.jupyterProxy.upgrade(req, socket, head);
       }
-    });
-  }
+    }
+  });
 
   const shutdown = () => {
     logger.info('Shutting down API Gateway...');

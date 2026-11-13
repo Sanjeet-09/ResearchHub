@@ -607,9 +607,8 @@ async function status(instanceNameOrSessionId, zone) {
             const sid = inst.labels?.['session-id'] ||
               (typeof instanceNameOrSessionId === 'string' && !instanceNameOrSessionId.startsWith('rh-lab-') ? instanceNameOrSessionId : null);
             const proxyBasePath = sid ? `/api/lab/sessions/${sid}/proxy/` : '';
-            const probePath = `${proxyBasePath}api`;
-
-            const isReady = await checkJupyterReadiness(externalIp, 8888, 1500, probePath);
+            const probePath = proxyBasePath ? `${proxyBasePath}api` : '/api';
+            const isReady = await checkJupyterReadiness(externalIp, 8888, 5000, probePath);
             if (!isReady) {
               return { status: 'STARTING', ready: false };
             }

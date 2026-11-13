@@ -16,6 +16,8 @@ export const SUPABASE_ANON_KEY =
   import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   '';
 
+export const supabase = typeof window !== 'undefined' ? (window.supabase || null) : null;
+
 /**
  * Returns a direct public URL for a file stored in a public Supabase Storage bucket.
  * @param {string} bucket - The Supabase storage bucket name (e.g. 'datasets', 'documents')

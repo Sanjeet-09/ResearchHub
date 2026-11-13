@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Skeleton } from '../components/ui';
 import { LabConfigPicker } from '../components/lab/LabConfigPicker';
 import { LabProgressScreen } from '../components/lab/LabProgressScreen';
@@ -11,6 +12,8 @@ import { Terminal, Plus, AlertCircle, FolderKanban } from 'lucide-react';
 
 export const LabPage = () => {
   const { user } = useAuth();
+  const { projectId: routeProjectId } = useParams();
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -26,6 +29,18 @@ export const LabPage = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Listen for broadcast events when session state changes across tabs/devices
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+    const syncChannel = new BroadcastChannel('rh_session_state');
+    syncChannel.onmessage = (event) => {
+      if (event.data?.projectId === selectedProjectId) {
+        fetchData();
+      }
+    };
+    return () => syncChannel.close();
+  }, [selectedProjectId]);
 
   // Auto-poll while on session list if any session is in a transitional state
   useEffect(() => {
@@ -44,6 +59,15 @@ export const LabPage = () => {
     return () => clearInterval(interval);
   }, [sessions, viewState]);
 
+  const handleSelectProject = (id) => {
+    setSelectedProjectId(id);
+    if (id && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('rh_last_project_id', id);
+      } catch (_) {}
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -52,10 +76,26 @@ export const LabPage = () => {
         labApi.getSessions(),
         projectApi.getProjects(),
       ]);
+      const projList = projectsData || [];
       setSessions(sessionsData || []);
-      setProjects(projectsData || []);
-      if (projectsData && projectsData.length > 0) {
-        setSelectedProjectId(projectsData[0].id);
+      setProjects(projList);
+
+      // Auto-resolve project ID: route param -> localStorage -> first project in list
+      const savedProjectId = typeof window !== 'undefined' ? localStorage.getItem('rh_last_project_id') : null;
+      let resolved = '';
+      if (routeProjectId && projList.some((p) => p.id === routeProjectId)) {
+        resolved = routeProjectId;
+      } else if (savedProjectId && projList.some((p) => p.id === savedProjectId)) {
+        resolved = savedProjectId;
+      } else if (projList.length > 0) {
+        resolved = projList[0].id;
+      }
+
+      setSelectedProjectId(resolved);
+      if (resolved && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rh_last_project_id', resolved);
+        } catch (_) {}
       }
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to load testing environments');
@@ -66,27 +106,44 @@ export const LabPage = () => {
 
   const handleStartNewSession = () => {
     if (projects.length === 0) {
-      setError('You must be a member of at least one project to launch a testing environment');
+      setError('You must create or join at least one project first before launching a testing environment');
       return;
     }
     setViewState('picker');
   };
 
   const handleLaunch = async ({ profileKey, name }) => {
-    if (!selectedProjectId) {
-      setError('Please select a project for this session');
+    const resolvedProjectId = selectedProjectId || (projects[0]?.id);
+    if (!resolvedProjectId) {
+      setError('Please select or create a project for this session');
       return;
     }
     try {
       setLaunchLoading(true);
       setError(null);
       const res = await labApi.createSession({
-        projectId: selectedProjectId,
+        projectId: resolvedProjectId,
         profileKey,
         name,
       });
-      setActiveSessionId(res.id);
-      setViewState('progress');
+
+      // Same-device cross-tab sync via BroadcastChannel
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        try {
+          const syncChannel = new BroadcastChannel('rh_session_state');
+          syncChannel.postMessage({ type: 'SESSION_MUTATED', projectId: resolvedProjectId });
+          syncChannel.close();
+        } catch (_) {}
+      }
+
+      const launchedSession = res.session || res;
+      setActiveSessionId(launchedSession.id);
+      if (res.reconnected) {
+        setCurrentSession(launchedSession);
+        setViewState('session');
+      } else {
+        setViewState('progress');
+      }
       fetchData();
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to launch session');
@@ -117,9 +174,11 @@ export const LabPage = () => {
 
   // 1. Session View (Interactive workspace + slim toolbar)
   if (viewState === 'session' && currentSession) {
+    const resolvedProjectId = selectedProjectId || currentSession?.project_id || currentSession?.projectId;
     return (
       <div className="space-y-4">
         <LabSessionView
+          projectId={resolvedProjectId}
           session={currentSession}
           onBack={handleBackToList}
           onSessionUpdated={(updated) => {
@@ -175,11 +234,11 @@ export const LabPage = () => {
             <ProjectSelectCombobox
               projects={projects}
               selectedProjectId={selectedProjectId}
-              onSelectProject={(id) => setSelectedProjectId(id)}
+              onSelectProject={handleSelectProject}
               userRole={user?.role}
               onProjectCreated={(newProj) => {
                 setProjects((prev) => [newProj, ...prev]);
-                setSelectedProjectId(newProj.id);
+                handleSelectProject(newProj.id);
               }}
             />
 
@@ -230,6 +289,21 @@ export const LabPage = () => {
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
+      ) : projects.length === 0 ? (
+        <Card className="p-8 text-center bg-surface border-border flex flex-col items-center justify-center max-w-lg mx-auto my-6 space-y-4">
+          <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+            <FolderKanban className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-txt-primary">Create a Project First</h3>
+            <p className="text-xs text-txt-muted max-w-sm">
+              Testing environments and Jupyter notebooks must be bound to a research project to store notebooks and share state across team members.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => navigate('/projects')}>
+            Create a Project First
+          </Button>
+        </Card>
       ) : (
         <LabSessionsList
           sessions={sessions}

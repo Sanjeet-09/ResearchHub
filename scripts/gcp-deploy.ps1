@@ -907,8 +907,8 @@ Write-Step "8. Building Frontend & Deploying to Firebase Hosting"
 
 # 1. Update frontend production env with dynamic relative API path
 $frontendEnvProd = Join-Path $rootDir "frontend\.env.production"
-Set-Content -Path $frontendEnvProd -Value "VITE_API_URL=/api" -Encoding UTF8
-Write-Success "Injected dynamic relative API URL into frontend/.env.production (VITE_API_URL=/api)"
+Set-Content -Path $frontendEnvProd -Value "VITE_API_URL=/api`nVITE_GATEWAY_URL=$gatewayUrl" -Encoding UTF8
+Write-Success "Injected dynamic relative API URL into frontend/.env.production (VITE_API_URL=/api, VITE_GATEWAY_URL=$gatewayUrl)"
 
 # 2. Build Vite frontend
 Exec-Step "Executing production frontend build (npm run build:frontend)" {

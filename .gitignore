@@ -34,3 +34,5 @@ db/
 .claude/
 .agents/
 .firebase/
+.remem_context_feed.md
+nothing.md

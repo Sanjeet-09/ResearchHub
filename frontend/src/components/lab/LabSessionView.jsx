@@ -6,6 +6,7 @@ import { LabEditConfigModal } from './LabEditConfigModal';
 import { LabNotionEditor } from './LabNotionEditor';
 import { LabPythonNotebook } from './LabPythonNotebook';
 import { labApi } from '../../services/api';
+import { supabase } from '../../services/supabase';
 import {
   ExternalLink,
   Pause,
@@ -27,6 +28,7 @@ import {
 
 export const LabSessionView = ({
   session: initialSession,
+  projectId: initialProjectId,
   onBack,
   onSessionUpdated,
   currentUser,
@@ -34,6 +36,8 @@ export const LabSessionView = ({
   isCollaborativeNonOwner,
 }) => {
   const [session, setSession] = useState(initialSession);
+  const resolvedProjectId = initialProjectId || session?.project_id || session?.projectId;
+  const currentProjectId = resolvedProjectId;
   const [elapsedSeconds, setElapsedSeconds] = useState(
     initialSession?.total_runtime_seconds || 0
   );
@@ -53,6 +57,86 @@ export const LabSessionView = ({
   const isRunning = sessionStatus === 'RUNNING' && (session?.ready === undefined || session?.ready === true);
   const [containerReady, setContainerReady] = useState(isRunning);
   const [startupProgress, setStartupProgress] = useState(isRunning ? 100 : 0);
+
+  const setSessionReady = (ready) => {
+    setContainerReady(ready);
+    if (ready) setStartupProgress(100);
+  };
+
+  const fetchSessionData = async () => {
+    if (!session?.id) return;
+    try {
+      const fresh = await (typeof labApi.getSessionStatus === 'function'
+        ? labApi.getSessionStatus(session.id)
+        : labApi.getSessionById(session.id));
+      if (fresh) {
+        setSession((prev) => ({
+          ...prev,
+          ...fresh,
+          project_id: fresh.project_id || fresh.projectId || prev?.project_id || resolvedProjectId,
+          projectId: fresh.project_id || fresh.projectId || prev?.project_id || resolvedProjectId,
+        }));
+        const statusUpper = (fresh.state || fresh.status || '').toUpperCase();
+        const isFreshReady = fresh?.ready === undefined || fresh?.ready === true;
+        if (statusUpper === 'RUNNING' && isFreshReady) {
+          setContainerReady(true);
+          setStartupProgress(100);
+        }
+        if (onSessionUpdated) onSessionUpdated(fresh);
+      }
+    } catch (err) {
+      console.warn('[LabSessionView Sync Warning]', err.message);
+    }
+  };
+
+  const broadcastSessionChange = () => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window && resolvedProjectId) {
+      try {
+        const syncChannel = new BroadcastChannel('rh_session_state');
+        syncChannel.postMessage({ type: 'SESSION_MUTATED', projectId: resolvedProjectId });
+        syncChannel.close();
+      } catch (_) {}
+    }
+  };
+
+  // 1. Same-Device Cross-Tab Sync via BroadcastChannel
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+    const syncChannel = new BroadcastChannel('rh_session_state');
+    syncChannel.onmessage = (event) => {
+      if (event.data?.projectId === resolvedProjectId) {
+        fetchSessionData(); // Refetches active session details
+      }
+    };
+    return () => syncChannel.close();
+  }, [resolvedProjectId, session?.id]);
+
+  // 2. Cross-Device Sync via Supabase Realtime
+  useEffect(() => {
+    if (!resolvedProjectId || !supabase) return;
+
+    const subscription = supabase
+      .channel(`lab_sessions:${resolvedProjectId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'lab_sessions', filter: `project_id=eq.${resolvedProjectId}` },
+        (payload) => {
+          // Sync session updates directly to state
+          if (payload.new) {
+            setSession((prev) => ({ ...prev, ...payload.new }));
+            const statusUpper = (payload.new.status || payload.new.state || '').toUpperCase();
+            if (statusUpper === 'RUNNING') setSessionReady(true);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (supabase && typeof supabase.removeChannel === 'function') {
+        supabase.removeChannel(subscription);
+      }
+    };
+  }, [resolvedProjectId]);
 
   // Sync session state from props
   useEffect(() => {
@@ -105,11 +189,12 @@ export const LabSessionView = ({
   };
 
   const handleOpenExternal = () => {
-    // Route through the API Gateway relative proxy to avoid ERR_CONNECTION_REFUSED & Mixed Content
-    const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
+    // Route through the API Gateway relative/direct proxy to avoid ERR_CONNECTION_REFUSED & Mixed Content
+    const token = session?.token || '';
     const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
+    const gatewayBase = import.meta.env.VITE_GATEWAY_URL || '';
     const proxyBase = session?.id
-      ? `/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
+      ? `${gatewayBase}/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
       : session?.url;
 
     if (proxyBase) {
@@ -149,7 +234,12 @@ export const LabSessionView = ({
           ? labApi.getSessionStatus(session.id)
           : labApi.getSessionById(session.id));
         if (fresh) {
-          setSession(fresh);
+          setSession((prev) => ({
+            ...prev,
+            ...fresh,
+            project_id: fresh.project_id || fresh.projectId || prev?.project_id || currentProjectId,
+            projectId: fresh.project_id || fresh.projectId || prev?.project_id || currentProjectId,
+          }));
           const isFreshReady = fresh?.ready === undefined || fresh?.ready === true;
           const statusLower = (fresh.state || fresh.status || '').toLowerCase();
           if (statusLower === 'running' && isFreshReady) {
@@ -181,6 +271,7 @@ export const LabSessionView = ({
       await labApi.pauseSession(session.id);
       const updated = await labApi.getSessionById(session.id);
       setSession(updated);
+      broadcastSessionChange();
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to pause session';
@@ -197,6 +288,7 @@ export const LabSessionView = ({
       await labApi.resumeSession(session.id);
       const updated = await labApi.getSessionById(session.id);
       setSession(updated);
+      broadcastSessionChange();
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to resume session';
@@ -214,6 +306,7 @@ export const LabSessionView = ({
       setIsStopDialogOpen(false);
       const updated = await labApi.getSessionById(session.id);
       setSession(updated);
+      broadcastSessionChange();
       if (onSessionUpdated) onSessionUpdated(updated);
     } catch (err) {
       const msg = err.response?.data?.error?.message || err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to stop session';
@@ -271,6 +364,7 @@ export const LabSessionView = ({
       const res = await labApi.restartSession(session.id);
       const updatedSession = res?.session || res;
       setSession(updatedSession);
+      broadcastSessionChange();
       if (onSessionUpdated) onSessionUpdated(updatedSession);
 
       // Begin polling GET /api/lab/sessions/:id/status until the new VM responds on port 8888 and transitions to RUNNING
@@ -292,6 +386,7 @@ export const LabSessionView = ({
           if (freshState === 'RUNNING' || fresh.ready) {
             setContainerReady(true);
             setStartupProgress(100);
+            broadcastSessionChange();
             clearInterval(pollInterval);
           } else if (freshState === 'FAILED' || freshState === 'STOPPED') {
             clearInterval(pollInterval);
@@ -559,11 +654,11 @@ export const LabSessionView = ({
         {viewMode === 'notebook' && (
           <div className="h-full w-full min-h-0 flex-1 overflow-y-auto">
             <LabPythonNotebook
-              session={session}
-              projectId={session.project_id}
-              sessionId={session.id}
-              sessionName={session.name}
-              profileKey={session.profile_key}
+              session={{ ...session, project_id: currentProjectId, projectId: currentProjectId }}
+              projectId={currentProjectId}
+              sessionId={session?.id}
+              sessionName={session?.name}
+              profileKey={session?.profile_key || session?.profileKey}
               currentUser={currentUser}
               isOwner={isOwner}
               onExportSuccess={(msg) => {
@@ -577,9 +672,9 @@ export const LabSessionView = ({
         {viewMode === 'notion' && (
           <div className="h-full w-full min-h-0 flex-1 overflow-y-auto bg-surface">
             <LabNotionEditor
-              projectId={session.project_id}
-              sessionId={session.id}
-              sessionName={session.name}
+              projectId={currentProjectId}
+              sessionId={session?.id}
+              sessionName={session?.name}
               onExportSuccess={(msg) => {
                 setExportMessage(msg);
                 setTimeout(() => setExportMessage(null), 5000);
@@ -592,10 +687,11 @@ export const LabSessionView = ({
           <div className="h-full w-full min-h-0 flex-1 flex flex-col relative">
             {/* Prevent Black Screen Iframe Render: do NOT mount iframe while containerReady is false */}
             {containerReady && (session.id || session.url) ? (() => {
-              const token = session?.token || (session?.url ? new URL(session.url, 'http://dummy').searchParams.get('token') : '') || '';
+              const token = session?.token || '';
               const tokenQuery = session?.token || token ? `?token=${encodeURIComponent(session.token || token)}` : '';
+              const gatewayBase = import.meta.env.VITE_GATEWAY_URL || '';
               const proxyBase = session?.id
-                ? `/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
+                ? `${gatewayBase}/api/lab/sessions/${session.id}/proxy/lab${tokenQuery}`
                 : session.url;
 
               return (

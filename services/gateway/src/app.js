@@ -7,7 +7,7 @@ const requestIdMiddleware = require('./middleware/requestId');
 const gatewayAuthMiddleware = require('./middleware/auth');
 const auditHookMiddleware = require('./middleware/audit');
 const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
-const { createServiceProxy, createLabProxy } = require('./middleware/proxy');
+const { createServiceProxy, createLabProxy, resolveLabTarget } = require('./middleware/proxy');
 
 const app = express();
 
@@ -53,19 +53,26 @@ app.use(cors({
 app.use((req, res, next) => {
   const contentType = req.headers['content-type'] || '';
   const url = (req.originalUrl || req.url || '').toLowerCase();
-  const isUpload = contentType.toLowerCase().includes('multipart/form-data') ||
-                   url.includes('/versions') ||
-                   url.includes('/datasets') ||
-                   url.includes('/files') ||
-                   url.includes('/attachments') ||
-                   url.includes('/upload') ||
-                   url.includes('/documents') ||
-                   url.includes('/proxy');
+  const isUploadOrProxy = (req.originalUrl && req.originalUrl.includes('/proxy')) ||
+                          contentType.toLowerCase().includes('multipart/form-data') ||
+                          url.includes('/versions') ||
+                          url.includes('/datasets') ||
+                          url.includes('/files') ||
+                          url.includes('/attachments') ||
+                          url.includes('/upload') ||
+                          url.includes('/documents');
 
-  if (isUpload) {
+  if (isUploadOrProxy) {
     return next();
   }
-  express.json({ limit: '10mb' })(req, res, next);
+  express.json({ limit: '50mb' })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  if (req.originalUrl && req.originalUrl.includes('/proxy')) {
+    return next();
+  }
+  express.urlencoded({ extended: true })(req, res, next);
 });
 
 // 4. Gateway Health Check (public, no auth)
@@ -77,11 +84,21 @@ app.get('/healthz', (req, res) => {
 // Mounted before rate limiters and auth gatekeeper to prevent 429 kernel startup errors
 const labJupyterProxy = createLabProxy();
 app.jupyterProxy = labJupyterProxy;
-app.use('/api/lab/sessions/:id/proxy', (req, res, next) => {
-  // Clear baseUrl to prevent http-proxy-middleware from concatenating it with req.url
-  req.baseUrl = '';
-  req.url = req.originalUrl;
-  labJupyterProxy(req, res, next);
+app.use('/api/lab/sessions/:id/proxy', async (req, res, next) => {
+  try {
+    const sessionIdMatch = (req.originalUrl || '').match(/\/api\/lab\/sessions\/([^/]+)\/proxy/);
+    const sessionId = sessionIdMatch?.[1];
+    const target = sessionId ? await resolveLabTarget(sessionId) : null;
+    if (!target) {
+      return res.status(503).json({ error: 'Lab session is still initializing or unreachable' });
+    }
+    // Clear baseUrl to prevent http-proxy-middleware from concatenating it with req.url
+    req.baseUrl = '';
+    req.url = req.originalUrl;
+    labJupyterProxy(req, res, next);
+  } catch (err) {
+    return res.status(503).json({ error: 'Lab session is still initializing or unreachable' });
+  }
 });
 
 // 6. Rate limiters

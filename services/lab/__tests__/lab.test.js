@@ -175,10 +175,34 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
       expect(res.body.error.code).toBe('FORBIDDEN');
     });
 
+    it('reconnects to an existing active session for the project with 200', async () => {
+      const existing = {
+        id: 'existing-session-id',
+        project_id: PROJ_ID,
+        state: 'running',
+        status: 'RUNNING',
+      };
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ project_role: 'member', allow_student_gpu: false }] }) // membership
+        .mockResolvedValueOnce({ rows: [sampleProfiles[0]] }) // profile
+        .mockResolvedValueOnce({ rows: [existing] }); // active session exists for this project
+
+      const res = await request(app)
+        .post('/lab/sessions')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ projectId: PROJ_ID, profileKey: 'basic-cpu', name: 'Second Tab Reconnect' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.reconnected).toBe(true);
+      expect(res.body.session.id).toBe('existing-session-id');
+      expect(res.body.message).toBe('Reconnected to existing active lab session.');
+    });
+
     it('rejects a second active session for the same user with 409', async () => {
       mockQuery
         .mockResolvedValueOnce({ rows: [{ project_role: 'member', allow_student_gpu: false }] }) // membership
         .mockResolvedValueOnce({ rows: [sampleProfiles[0]] }) // profile
+        .mockResolvedValueOnce({ rows: [] }) // existing project session = none
         .mockResolvedValueOnce({ rows: [{ id: 'active-session-id' }] }); // active user session exists
 
       const res = await request(app)
@@ -194,6 +218,7 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
       mockQuery
         .mockResolvedValueOnce({ rows: [{ project_role: 'member', allow_student_gpu: false }] }) // membership
         .mockResolvedValueOnce({ rows: [sampleProfiles[0]] }) // profile
+        .mockResolvedValueOnce({ rows: [] }) // existing project session = none
         .mockResolvedValueOnce({ rows: [] }) // active user session = none
         .mockResolvedValueOnce({ rows: [{ count: '2' }] }); // totalActive count = 2 (max)
 
@@ -210,6 +235,7 @@ describe('Lab Service (Phase 9 — Testing Environment & Pause/Resume/Stop)', ()
       mockQuery
         .mockResolvedValueOnce({ rows: [{ project_role: 'member', allow_student_gpu: false }] }) // membership
         .mockResolvedValueOnce({ rows: [sampleProfiles[0]] }) // profile
+        .mockResolvedValueOnce({ rows: [] }) // existing project session = none
         .mockResolvedValueOnce({ rows: [] }) // active user session = none
         .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // totalActive count = 0
         .mockResolvedValueOnce({ rows: [{ month_cost: '1.20' }] }) // budget check

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Card, Badge, Dialog } from '../ui';
-import { documentApi, datasetApi, labApi } from '../../services/api';
+import { api, documentApi, datasetApi, labApi } from '../../services/api';
 import { toast } from 'sonner';
 import {
   Play,
@@ -42,7 +42,7 @@ import {
 import { cn } from '@/lib/utils';
 
 export const LabPythonNotebook = ({
-  projectId,
+  projectId: propProjectId,
   sessionId,
   sessionName,
   profileKey = 'basic-cpu',
@@ -51,6 +51,7 @@ export const LabPythonNotebook = ({
   currentUser,
   isOwner = true,
 }) => {
+  const currentProjectId = session?.project_id || session?.projectId || propProjectId;
   const [pyodideReady, setPyodideReady] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('Initializing Python 3.11 Runtime...');
   const [isRunningAll, setIsRunningAll] = useState(false);
@@ -239,10 +240,10 @@ print(f"Final Step 10 Accuracy: {accuracy[-1] * 100:.1f}% | Loss: {loss[-1]}")`,
   }, [sessionId, fetchRemoteNotebook]);
 
   const fetchProjectDatasets = async () => {
-    if (!projectId) return [];
+    if (!currentProjectId) return [];
     try {
       setDatasetsLoading(true);
-      const data = await datasetApi.listByProject(projectId);
+      const data = await datasetApi.listByProject(currentProjectId);
       const dsList = Array.isArray(data) ? data : [];
       setDatasets(dsList);
       return dsList;
@@ -379,7 +380,7 @@ os.chdir('/workspace')
     return () => {
       isMounted = false;
     };
-  }, [projectId]);
+  }, [currentProjectId]);
 
   const updateCellSource = (id, newSource) => {
     setCells((prev) => {
@@ -761,45 +762,38 @@ globals().clear()
 
   // Save to Documents repository
   const handleSaveToDocuments = async () => {
-    if (!projectId) {
-      alert('Project ID missing');
+    const targetProjectId = session?.project_id || session?.projectId || currentProjectId;
+    if (!targetProjectId) {
+      toast.error('Please assign or open this lab inside a project to save documents');
       return;
     }
     try {
       setIsExporting(true);
       const ipynbData = generateIpynb();
-      const fileName = `${(sessionName || 'lab_notebook').toLowerCase().replace(/[^a-z0-9]/g, '_')}.ipynb`;
+      const rawTitle = session?.title || session?.name || sessionName || 'notebook';
+      const baseName = rawTitle.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+      const title = baseName.endsWith('.ipynb') ? baseName : `${baseName}.ipynb`;
       const blob = new Blob([JSON.stringify(ipynbData, null, 2)], { type: 'application/x-ipynb+json' });
-      const file = new File([blob], fileName, { type: 'application/x-ipynb+json' });
+      const file = new File([blob], title, { type: 'application/x-ipynb+json' });
 
-      // 1. Get signed upload URL
-      const { uploadUrl, gcsPath } = await documentApi.getUploadUrl(projectId, {
-        fileName,
-        mimeType: 'application/x-ipynb+json',
-        docType: 'report',
-        title: `Notebook: ${sessionName || 'Lab Session'} (${profileKey})`,
-      });
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', title);
+      formData.append('project_id', targetProjectId);
+      formData.append('file_type', 'notebook');
 
-      // 2. Binary upload
-      await documentApi.uploadFileBinary(uploadUrl, file);
+      try {
+        await api.post('/documents', formData);
+      } catch (postErr) {
+        await documentApi.createDocument(targetProjectId, formData);
+      }
 
-      // 3. Confirm document registration
-      await documentApi.createDocument(projectId, {
-        title: `Notebook: ${sessionName || 'Lab Session'} (${profileKey})`,
-        docType: 'report',
-        gcsPath,
-        mimeType: 'application/x-ipynb+json',
-        sizeBytes: blob.size,
-        fileName,
-      });
-
+      toast.success('Notebook exported to project Documents successfully!');
       if (onExportSuccess) {
         onExportSuccess('Notebook exported to project Documents successfully!');
-      } else {
-        alert('Notebook exported to project Documents successfully!');
       }
     } catch (err) {
-      alert(err.response?.data?.error?.message || 'Failed to export notebook');
+      toast.error(err.response?.data?.error?.message || err.message || 'Failed to export notebook');
     } finally {
       setIsExporting(false);
     }

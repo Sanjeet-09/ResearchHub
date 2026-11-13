@@ -68,9 +68,24 @@ export const LabTab = ({ projectId, isMember, isLead = false, allowStudentGpu = 
       setLaunchLoading(true);
       setError(null);
       const res = await labApi.createSession({ projectId, profileKey, name });
-      setActiveSessionId(res.id);
-      setViewState('progress');
+      const launchedSession = res?.session || res;
+      setActiveSessionId(launchedSession.id);
       hasAutoOpenedRef.current = true;
+
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        try {
+          const syncChannel = new BroadcastChannel('rh_session_state');
+          syncChannel.postMessage({ type: 'SESSION_MUTATED', projectId });
+          syncChannel.close();
+        } catch (_) {}
+      }
+
+      if (res?.reconnected) {
+        setCurrentSession(launchedSession);
+        setViewState('session');
+      } else {
+        setViewState('progress');
+      }
       fetchSessions();
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to launch session');
@@ -118,6 +133,7 @@ export const LabTab = ({ projectId, isMember, isLead = false, allowStudentGpu = 
   if (viewState === 'session' && currentSession) {
     return (
       <LabSessionView
+        projectId={projectId}
         session={currentSession}
         onBack={handleBackToList}
         onSessionUpdated={(updated) => {
